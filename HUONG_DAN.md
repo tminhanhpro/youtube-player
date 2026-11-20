@@ -23,11 +23,11 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 
 ## Mã QR, danh mục, lưới kết quả
 - Nút **Ẩn/Hiện** nằm bên phải ô "CỔNG": ẩn thì mã QR biến mất hoàn toàn, danh mục âm nhạc trồi lên để thấy nhiều thể loại hơn (trạng thái được nhớ).
-- Thể loại tự tạo có nút **Xoá** ngay trên dòng; bấm sẽ hiện hộp xác nhận giữa màn hình (mặc định chọn "GIỮ LẠI").
+- Mọi thể loại (cả 5 thể loại mặc định) có nút **Xoá** ngay trên dòng; có thể khôi phục thể loại mặc định trong Cài đặt; bấm sẽ hiện hộp xác nhận giữa màn hình (mặc định chọn "GIỮ LẠI").
 - *Cài đặt → Số bài mỗi hàng kết quả*: xoay vòng 3 → 2 → 1. Chế độ 1 bài/hàng hiển thị dạng danh sách (ảnh bên trái, tên bên phải).
 
 ## Tự phóng to
-Sau **30 giây không bấm phím nào trên remote TV**, màn hình phát tự phóng to toàn màn hình.
+Sau **5 giây không bấm phím nào trên remote TV**, màn hình phát tự phóng to toàn màn hình.
 Lệnh từ điện thoại (thêm bài, âm lượng, thả tim, tin nhắn…) **không** làm thu nhỏ.
 
 ## Tìm kiếm dùng chung TV ↔ điện thoại

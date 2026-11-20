@@ -63,7 +63,7 @@ private class QueueTag(val item: QueueItem)
 
 /**
  * Youtube Player - giao dien TV 3 cot: [QR + the loai] [tim kiem + luoi ket qua] [dang phat + hang doi].
- * Man hinh phat nho o goc phai, tu phong to toan man hinh sau 30 giay khong bam phim remote TV,
+ * Man hinh phat nho o goc phai, tu phong to toan man hinh sau 5 giay khong bam phim remote TV,
  * bam bat ky phim nao tren remote TV -> thu nho ngay. Lenh tu dien thoai KHONG lam thu nho.
  */
 @Suppress("DEPRECATION")
@@ -78,7 +78,7 @@ class MainActivity : Activity(), IframeHost {
         const val MUTED = 0xFF9A9AB0.toInt()
         const val CYAN = 0xFF29B6F6.toInt()
         const val GREEN = 0xFF2ECC71.toInt()
-        const val FULLSCREEN_AFTER_MS = 30_000L
+        const val FULLSCREEN_AFTER_MS = 5_000L
         const val REQ_VOICE = 77
     }
 
@@ -1227,15 +1227,14 @@ class MainActivity : Activity(), IframeHost {
             row.addView(IconView(this, "note", if (sel) Color.WHITE else MUTED), lin(p(28), p(28)))
             row.addView(lbl(ct.name, 24, if (sel) Color.WHITE else 0xFFD6D6E2.toInt(), sel, 1), lin(0, -2, 1f, l = 14))
             row.setOnClickListener { selectCat(i) }
-            if (ct.custom) {
-                row.setOnLongClickListener { confirmDeleteCat(i); true }
-                val del = lbl("Xoá", 18, Color.WHITE, true)
-                del.gravity = Gravity.CENTER
-                del.setPadding(p(14), p(4), p(14), p(4))
-                focusable(del, box(0x55FF1744, 16, 2, RED), box(RED, 16, 3, CYAN))
-                del.setOnClickListener { confirmDeleteCat(i) }
-                row.addView(del, lin(-2, p(38), l = 8))
-            }
+            // Moi the loai (ke ca 5 the loai co dinh) deu co nut Xoa
+            row.setOnLongClickListener { confirmDeleteCat(i); true }
+            val del = lbl("Xoá", 18, Color.WHITE, true)
+            del.gravity = Gravity.CENTER
+            del.setPadding(p(14), p(4), p(14), p(4))
+            focusable(del, box(0x55FF1744, 16, 2, RED), box(RED, 16, 3, CYAN))
+            del.setOnClickListener { confirmDeleteCat(i) }
+            row.addView(del, lin(-2, p(38), l = 8))
             catBox.addView(row, lin(-1, p(58), b = 6))
         }
         if (fIdx >= 0 && catBox.childCount > 0) catBox.getChildAt(minOf(fIdx, catBox.childCount - 1)).requestFocus()
@@ -1294,7 +1293,7 @@ class MainActivity : Activity(), IframeHost {
         val t2 = lbl("“${ct.name}”", 30, RED, true)
         t2.gravity = Gravity.CENTER
         body.addView(t2, lin(-1, -2, t = 14))
-        val t3 = lbl("Thể loại sẽ bị xoá khỏi danh mục.\nBạn có thể tạo lại sau.", 22, MUTED)
+        val t3 = lbl("Thể loại sẽ bị xoá khỏi danh mục.\nCó thể tạo lại hoặc khôi phục trong Cài đặt.", 22, MUTED)
         t3.gravity = Gravity.CENTER
         body.addView(t3, lin(-1, -2, t = 12))
         val d = track(
@@ -1338,7 +1337,7 @@ class MainActivity : Activity(), IframeHost {
         timeR.text = mmss(pg[1])
         bar.frac = if (pg[1] > 0) pg[0].toFloat() / pg[1] else 0f
 
-        // Tu phong to sau 30 giay khong bam phim remote TV
+        // Tu phong to sau 5 giay khong bam phim remote TV
         if (!fullscreen && lastUi.state == PState.PLAYING && dialogs == 0 && !searchEt.hasFocus() &&
             SystemClock.elapsedRealtime() - lastControlAt >= FULLSCREEN_AFTER_MS
         ) enterFullscreen()
@@ -1472,6 +1471,7 @@ class MainActivity : Activity(), IframeHost {
             "Độ phân giải tối đa: ${s.maxHeight}p",
             "Tự phát bài gợi ý khi hàng đợi trống: ${if (s.seedAutoplay) "BẬT" else "TẮT"}",
             "Số bài mỗi hàng kết quả: ${s.gridCols}",
+            "Khôi phục 5 thể loại mặc định",
             "Đặt lại ghép nối (ngắt mọi điện thoại)",
             "Xong"
         )
@@ -1485,7 +1485,15 @@ class MainActivity : Activity(), IframeHost {
                         1 -> c.controller.setMaxHeight(when (s.maxHeight) { 360 -> 480; 480 -> 720; 720 -> 1080; else -> 360 })
                         2 -> s.seedAutoplay = !s.seedAutoplay
                         3 -> { s.gridCols = when (s.gridCols) { 3 -> 2; 2 -> 1; else -> 3 }; applyGridCols(s.gridCols) }
-                        4 -> { confirmReset(); return@setItems }
+                        4 -> {
+                            val have = cats.map { it.name }
+                            Cats.defaults().filter { it.name !in have }.reversed().forEach { cats.add(0, it) }
+                            Cats.save(c.settings.sp, cats)
+                            selCat = -1
+                            renderCats()
+                            toast("Đã khôi phục các thể loại mặc định")
+                        }
+                        5 -> { confirmReset(); return@setItems }
                         else -> return@setItems
                     }
                     showSettings()
@@ -1526,7 +1534,7 @@ class MainActivity : Activity(), IframeHost {
     private fun isMediaKey(k: Int) = k == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || k == KeyEvent.KEYCODE_MEDIA_PLAY ||
         k == KeyEvent.KEYCODE_MEDIA_PAUSE || k == KeyEvent.KEYCODE_MEDIA_NEXT
 
-    /** Moi phim bam tren remote TV = "co dieu khien": tinh lai 30 giay, dang toan man hinh thi thu nho ngay. */
+    /** Moi phim bam tren remote TV = "co dieu khien": tinh lai 5 giay, dang toan man hinh thi thu nho ngay. */
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         if (e.action == KeyEvent.ACTION_DOWN) {
             lastControlAt = SystemClock.elapsedRealtime()

@@ -16,7 +16,29 @@ object Cats {
         Cat("Trữ Tình Quê Hương", "nhạc trữ tình quê hương", false)
     )
 
+    /** Danh sach the loai mac dinh (dung cho nut "Khoi phuc the loai mac dinh"). */
+    fun defaults(): MutableList<Cat> = ArrayList(DEFAULTS)
+
+    /**
+     * Tat ca the loai (ke ca 5 the loai co dinh) deu xoa duoc. Danh sach day du duoc luu o khoa "cats2";
+     * neu chua co (ban cu) thi lay 5 the loai mac dinh + cac the loai tu tao da luu o khoa "cats".
+     */
     fun load(sp: SharedPreferences): MutableList<Cat> {
+        try {
+            val txt2 = sp.getString("cats2", null)
+            if (txt2 != null) {
+                val out = ArrayList<Cat>()
+                val arr = JSONArray(txt2)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val n = o.optString("n")
+                    val q = o.optString("q")
+                    if (n.isNotBlank() && q.isNotBlank()) out.add(Cat(n, q, o.optBoolean("c", true)))
+                }
+                return out
+            }
+        } catch (e: Exception) {
+        }
         val out = ArrayList<Cat>(DEFAULTS)
         try {
             val txt = sp.getString("cats", null) ?: return out
@@ -34,7 +56,7 @@ object Cats {
 
     fun save(sp: SharedPreferences, list: List<Cat>) {
         val arr = JSONArray()
-        list.filter { it.custom }.forEach { arr.put(JSONObject().put("n", it.name).put("q", it.q)) }
-        sp.edit().putString("cats", arr.toString()).apply()
+        list.forEach { arr.put(JSONObject().put("n", it.name).put("q", it.q).put("c", it.custom)) }
+        sp.edit().putString("cats2", arr.toString()).apply()
     }
 }
