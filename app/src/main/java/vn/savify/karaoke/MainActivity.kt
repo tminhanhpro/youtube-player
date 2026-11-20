@@ -24,6 +24,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -78,7 +79,6 @@ class MainActivity : Activity(), IframeHost {
         const val MUTED = 0xFF9A9AB0.toInt()
         const val CYAN = 0xFF29B6F6.toInt()
         const val GREEN = 0xFF2ECC71.toInt()
-        const val FULLSCREEN_AFTER_MS = 5_000L
         const val REQ_VOICE = 77
     }
 
@@ -97,14 +97,12 @@ class MainActivity : Activity(), IframeHost {
     private lateinit var resTag: TextView
     private lateinit var nowBadge: TextView
     private lateinit var fsBtn: View
-    private lateinit var fsInfo: TextView
     private lateinit var react: ReactionView
     private lateinit var msgView: MessageView
     private lateinit var volBox: LinearLayout
     private lateinit var volText: TextView
     private lateinit var volBar: android.widget.ProgressBar
     private val volHide = Runnable { volBox.visibility = View.GONE }
-    private val fsInfoHide = Runnable { fsInfo.visibility = View.GONE }
 
     private lateinit var remoteDot: IconView
     private lateinit var remoteText: TextView
@@ -156,7 +154,6 @@ class MainActivity : Activity(), IframeHost {
     private var fullscreen = false
     private var lastControlAt = 0L
     private var savedFocus: View? = null
-    private var lastFsTitle: String? = null
     private var dialogs = 0
 
     private val cats = ArrayList<Cat>()
@@ -414,16 +411,6 @@ class MainActivity : Activity(), IframeHost {
 
         buildVideoBox()
 
-        // Thong tin bai hat khi toan man hinh (tu an sau vai giay)
-        fsInfo = lbl("", 30, Color.WHITE, true, 2)
-        fsInfo.background = box(0xCC000000.toInt(), 16)
-        fsInfo.setPadding(p(28), p(14), p(28), p(14))
-        fsInfo.visibility = View.GONE
-        val flp = FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START)
-        flp.leftMargin = p(48)
-        flp.bottomMargin = p(48)
-        root.addView(fsInfo, flp)
-
         react = ReactionView(this)
         root.addView(react, FrameLayout.LayoutParams(-1, -1))
         msgView = MessageView(this)
@@ -595,7 +582,7 @@ class MainActivity : Activity(), IframeHost {
         barRow.gravity = Gravity.CENTER_VERTICAL
 
         val mic = FrameLayout(this)
-        focusable(mic, box(PANEL, 34, 2, BORDER), box(0x22FFFFFF, 34, 3, CYAN))
+        focusable(mic, box(RED, 34, 2, 0x55FFFFFF), box(RED, 34, 4, CYAN))
         val micIc = IconView(this, "mic", Color.WHITE)
         mic.addView(micIc, FrameLayout.LayoutParams(p(30), p(30), Gravity.CENTER))
         mic.setOnClickListener { startVoice() }
@@ -604,13 +591,13 @@ class MainActivity : Activity(), IframeHost {
         searchField = LinearLayout(this)
         searchField.orientation = LinearLayout.HORIZONTAL
         searchField.gravity = Gravity.CENTER_VERTICAL
-        searchField.background = box(PANEL, 36, 2, BORDER)
+        searchField.background = box(PANEL2, 36, 3, RED)
         searchField.setPadding(p(22), 0, p(16), 0)
-        searchField.addView(IconView(this, "search", MUTED), lin(p(30), p(30)))
+        searchField.addView(IconView(this, "search", Color.WHITE), lin(p(30), p(30)))
         searchEt = EditText(this)
         searchEt.background = null
         searchEt.setTextColor(Color.WHITE)
-        searchEt.setHintTextColor(0xFF6A6A80.toInt())
+        searchEt.setHintTextColor(0xFFB4B4C8.toInt())
         searchEt.hint = "Nhập tên bài hát, ca sĩ hoặc dán link YouTube"
         searchEt.sz(26)
         searchEt.setSingleLine(true)
@@ -630,7 +617,7 @@ class MainActivity : Activity(), IframeHost {
             (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(searchEt, 0)
         }
         searchEt.setOnFocusChangeListener { _, f ->
-            searchField.background = box(PANEL, 36, if (f) 3 else 2, if (f) CYAN else BORDER)
+            searchField.background = if (f) box(PANEL, 36, 4, CYAN) else box(PANEL2, 36, 3, RED)
         }
         searchField.addView(searchEt, lin(0, -1, 1f, l = 6))
         searchField.addView(hintChip("OK", "Chọn"), lin(-2, -2))
@@ -853,15 +840,12 @@ class MainActivity : Activity(), IframeHost {
         nowBadge.visibility = View.GONE
         applyVideoBox()
         fitSurface()
-        showFsInfo()
     }
 
     private fun exitFullscreen() {
         if (!fullscreen) return
         fullscreen = false
         lastControlAt = SystemClock.elapsedRealtime()
-        fsInfo.removeCallbacks(fsInfoHide)
-        fsInfo.visibility = View.GONE
         dash.visibility = View.VISIBLE
         fsBtn.visibility = View.VISIBLE
         resTag.visibility = View.VISIBLE
@@ -871,18 +855,6 @@ class MainActivity : Activity(), IframeHost {
         val target = savedFocus?.takeIf { it.isAttachedToWindow }
             ?: cardViews.firstOrNull() ?: fsBtn
         target.post { target.requestFocus() }
-    }
-
-    private fun showFsInfo() {
-        val c = core ?: return
-        val cur = c.controller.currentItem()
-        val title = lastUi.nowTitle ?: return
-        lastFsTitle = title
-        val ch = cur?.channel ?: ""
-        fsInfo.text = if (ch.isNotBlank()) title + "\n" + ch else title
-        fsInfo.visibility = View.VISIBLE
-        fsInfo.removeCallbacks(fsInfoHide)
-        fsInfo.postDelayed(fsInfoHide, 6000)
     }
 
     private fun fitSurface() {
@@ -908,7 +880,6 @@ class MainActivity : Activity(), IframeHost {
     // ------------------------------------------------------------------ rendering
 
     private fun renderUi(u: UiState) {
-        val prevTitle = lastUi.nowTitle
         lastUi = u
         val playing = u.state == PState.PLAYING || u.state == PState.PAUSED
         if (playing) inSession = true
@@ -934,7 +905,6 @@ class MainActivity : Activity(), IframeHost {
         titleTv.text = u.nowTitle ?: "Chưa có bài hát"
         subTv.text = core?.controller?.currentItem()?.channel ?: ""
         if (u.state == PState.IDLE) exitFullscreen()
-        if (fullscreen && u.nowTitle != null && u.nowTitle != prevTitle) showFsInfo()
         refreshQueue()
     }
 
@@ -1235,6 +1205,32 @@ class MainActivity : Activity(), IframeHost {
             focusable(del, box(0x55FF1744, 16, 2, RED), box(RED, 16, 3, CYAN))
             del.setOnClickListener { confirmDeleteCat(i) }
             row.addView(del, lin(-2, p(38), l = 8))
+            // Remote TV: nut "Xoa" nam trong hang nen Android khong tu nhay vao duoc -> tu dieu huong
+            // Phai: hang -> Xoa | Trai: Xoa -> hang | Len/Xuong: giua cac nut Xoa
+            row.setOnKeyListener { _, keyCode, ev ->
+                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    if (ev.action == KeyEvent.ACTION_DOWN) del.requestFocus()
+                    true
+                } else false
+            }
+            del.setOnKeyListener { _, keyCode, ev ->
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        if (ev.action == KeyEvent.ACTION_DOWN) row.requestFocus()
+                        true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        val step = if (keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1
+                        val nextRow = catBox.getChildAt(i + step) as? ViewGroup
+                        val nextDel = nextRow?.getChildAt(nextRow.childCount - 1)
+                        if (nextDel != null) {
+                            if (ev.action == KeyEvent.ACTION_DOWN) nextDel.requestFocus()
+                            true
+                        } else false
+                    }
+                    else -> false
+                }
+            }
             catBox.addView(row, lin(-1, p(58), b = 6))
         }
         if (fIdx >= 0 && catBox.childCount > 0) catBox.getChildAt(minOf(fIdx, catBox.childCount - 1)).requestFocus()
@@ -1337,9 +1333,10 @@ class MainActivity : Activity(), IframeHost {
         timeR.text = mmss(pg[1])
         bar.frac = if (pg[1] > 0) pg[0].toFloat() / pg[1] else 0f
 
-        // Tu phong to sau 5 giay khong bam phim remote TV
-        if (!fullscreen && lastUi.state == PState.PLAYING && dialogs == 0 && !searchEt.hasFocus() &&
-            SystemClock.elapsedRealtime() - lastControlAt >= FULLSCREEN_AFTER_MS
+        // Tu phong to sau N giay (Cai dat) khong bam phim remote TV; N = 0 la tat
+        val fsSec = c.settings.fullscreenSec
+        if (fsSec > 0 && !fullscreen && lastUi.state == PState.PLAYING && dialogs == 0 && !searchEt.hasFocus() &&
+            SystemClock.elapsedRealtime() - lastControlAt >= fsSec * 1000L
         ) enterFullscreen()
     }
 
@@ -1471,6 +1468,7 @@ class MainActivity : Activity(), IframeHost {
             "Độ phân giải tối đa: ${s.maxHeight}p",
             "Tự phát bài gợi ý khi hàng đợi trống: ${if (s.seedAutoplay) "BẬT" else "TẮT"}",
             "Số bài mỗi hàng kết quả: ${s.gridCols}",
+            "Tự phóng lớn video sau: ${if (s.fullscreenSec == 0) "TẮT" else "${s.fullscreenSec} giây"}",
             "Khôi phục 5 thể loại mặc định",
             "Đặt lại ghép nối (ngắt mọi điện thoại)",
             "Xong"
@@ -1486,6 +1484,12 @@ class MainActivity : Activity(), IframeHost {
                         2 -> s.seedAutoplay = !s.seedAutoplay
                         3 -> { s.gridCols = when (s.gridCols) { 3 -> 2; 2 -> 1; else -> 3 }; applyGridCols(s.gridCols) }
                         4 -> {
+                            val opts = intArrayOf(3, 5, 10, 15, 30, 60, 0)
+                            val cur = opts.indexOf(s.fullscreenSec)
+                            s.fullscreenSec = opts[(cur + 1) % opts.size]
+                            lastControlAt = SystemClock.elapsedRealtime()
+                        }
+                        5 -> {
                             val have = cats.map { it.name }
                             Cats.defaults().filter { it.name !in have }.reversed().forEach { cats.add(0, it) }
                             Cats.save(c.settings.sp, cats)
@@ -1493,7 +1497,7 @@ class MainActivity : Activity(), IframeHost {
                             renderCats()
                             toast("Đã khôi phục các thể loại mặc định")
                         }
-                        5 -> { confirmReset(); return@setItems }
+                        6 -> { confirmReset(); return@setItems }
                         else -> return@setItems
                     }
                     showSettings()

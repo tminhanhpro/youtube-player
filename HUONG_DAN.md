@@ -27,7 +27,8 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 - *Cài đặt → Số bài mỗi hàng kết quả*: xoay vòng 3 → 2 → 1. Chế độ 1 bài/hàng hiển thị dạng danh sách (ảnh bên trái, tên bên phải).
 
 ## Tự phóng to
-Sau **5 giây không bấm phím nào trên remote TV**, màn hình phát tự phóng to toàn màn hình.
+Mặc định sau **5 giây không bấm phím nào trên remote TV**, màn hình phát tự phóng to toàn màn hình.
+Đổi số giây trong *Cài đặt → Tự phóng lớn video sau*: xoay vòng 3 → 5 → 10 → 15 → 30 → 60 giây → TẮT (không tự phóng lớn).
 Lệnh từ điện thoại (thêm bài, âm lượng, thả tim, tin nhắn…) **không** làm thu nhỏ.
 
 ## Tìm kiếm dùng chung TV ↔ điện thoại

@@ -42,6 +42,11 @@ class Settings(ctx: Context) {
         get() = sp.getInt("gridCols", 3).coerceIn(1, 3)
         set(v) { sp.edit().putInt("gridCols", v.coerceIn(1, 3)).apply() }
 
+    /** So giay khong bam remote thi tu phong to video: 3..60; 0 = tat tu phong to (mac dinh 5) */
+    var fullscreenSec: Int
+        get() = sp.getInt("fullscreenSec", 5).coerceIn(0, 120)
+        set(v) { sp.edit().putInt("fullscreenSec", v.coerceIn(0, 120)).apply() }
+
     /** An ma QR tren TV (danh muc am nhac tu day len) */
     var qrHidden: Boolean
         get() = sp.getBoolean("qrHidden", false)
