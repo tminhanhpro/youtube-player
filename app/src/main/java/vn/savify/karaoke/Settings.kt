@@ -37,6 +37,16 @@ class Settings(ctx: Context) {
         get() = sp.getString("tvLang", "vi") ?: "vi"
         set(v) { sp.edit().putString("tvLang", v).apply() }
 
+    /** So bai tren moi hang o luoi ket qua: 1, 2 hoac 3 (mac dinh 3) */
+    var gridCols: Int
+        get() = sp.getInt("gridCols", 3).coerceIn(1, 3)
+        set(v) { sp.edit().putInt("gridCols", v.coerceIn(1, 3)).apply() }
+
+    /** An ma QR tren TV (danh muc am nhac tu day len) */
+    var qrHidden: Boolean
+        get() = sp.getBoolean("qrHidden", false)
+        set(v) { sp.edit().putBoolean("qrHidden", v).apply() }
+
     var token: String
         get() {
             val t = sp.getString("token", null)

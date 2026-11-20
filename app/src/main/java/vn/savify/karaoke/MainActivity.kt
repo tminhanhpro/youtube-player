@@ -113,6 +113,10 @@ class MainActivity : Activity(), IframeHost {
     private lateinit var clock: TextView
     private lateinit var portPill: TextView
     private lateinit var qrImg: ImageView
+    private lateinit var qrBody: LinearLayout
+    private lateinit var qrToggle: TextView
+    private var gridCols = 3
+    private var centerWpx = 0
     private lateinit var qrCap: TextView
     private lateinit var qrUrl: TextView
     private lateinit var catBox: LinearLayout
@@ -284,6 +288,8 @@ class MainActivity : Activity(), IframeHost {
         c.controller.attachIframeHost(this)
         cats.clear()
         cats.addAll(Cats.load(c.settings.sp))
+        applyQrHidden(c.settings.qrHidden)
+        if (gridCols != c.settings.gridCols) applyGridCols(c.settings.gridCols)
         renderCats()
         coreJobs.add(scope.launch { c.controller.ui.collect { renderUi(it) } })
         coreJobs.add(scope.launch { c.controller.search.collect { renderSearch(it) } })
@@ -368,6 +374,11 @@ class MainActivity : Activity(), IframeHost {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    private fun calcCardW(): Int {
+        val n = gridCols.coerceIn(1, 3)
+        return (centerWpx - p(14 * (n - 1)) - (if (n == 3) 0 else p(8))) / n
+    }
+
     private fun track(b: AlertDialog.Builder): AlertDialog {
         val d = b.create()
         dialogs++
@@ -382,7 +393,8 @@ class MainActivity : Activity(), IframeHost {
         val dm = resources.displayMetrics
         sc = (dm.widthPixels / 1920f).coerceIn(0.4f, 2.5f)
         val centerW = dm.widthPixels - p(64 + 400 + 520 + 32)
-        cardW = (centerW - p(28)) / 3
+        centerWpx = centerW
+        cardW = calcCardW()
 
         root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
@@ -487,24 +499,38 @@ class MainActivity : Activity(), IframeHost {
         val head = LinearLayout(this)
         head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
-        head.addView(lbl("QUÉT KẾT NỐI\nREMOTE", 22, Color.WHITE, true), lin(0, -2, 1f))
-        portPill = lbl("", 18, GREEN, true)
+        head.addView(lbl("QUÉT KẾT NỐI\nREMOTE", 20, Color.WHITE, true), lin(0, -2, 1f))
+        portPill = lbl("", 16, GREEN, true)
         portPill.background = box(0x222ECC71, 20, 2, GREEN)
-        portPill.setPadding(p(14), p(6), p(14), p(6))
+        portPill.setPadding(p(10), p(6), p(10), p(6))
         head.addView(portPill, lin(-2, -2))
+        // Nut An/Hien ma QR nam ben phai o hien thi cong
+        qrToggle = lbl("Ẩn", 18, Color.WHITE, true)
+        qrToggle.gravity = Gravity.CENTER
+        qrToggle.setPadding(p(14), p(6), p(14), p(6))
+        focusable(qrToggle, box(0xFF2A2A38.toInt(), 20, 2, 0xFF44445A.toInt()), box(0x33FFFFFF, 20, 3, CYAN))
+        qrToggle.setOnClickListener {
+            val c = core ?: return@setOnClickListener
+            c.settings.qrHidden = !c.settings.qrHidden
+            applyQrHidden(c.settings.qrHidden)
+        }
+        head.addView(qrToggle, lin(-2, -2, l = 8))
         card.addView(head, lin(-1, -2))
+        qrBody = LinearLayout(this)
+        qrBody.orientation = LinearLayout.VERTICAL
+        card.addView(qrBody, lin(-1, -2))
         qrImg = ImageView(this)
         qrImg.scaleType = ImageView.ScaleType.FIT_XY
         qrImg.background = box(Color.WHITE, 16)
         val qlp = lin(p(270), p(270), t = 12)
         qlp.gravity = Gravity.CENTER_HORIZONTAL
-        card.addView(qrImg, qlp)
+        qrBody.addView(qrImg, qlp)
         qrCap = lbl("Mở camera quét để điều khiển", 19, Color.WHITE, true, 1)
         qrCap.gravity = Gravity.CENTER
-        card.addView(qrCap, lin(-1, -2, t = 12))
+        qrBody.addView(qrCap, lin(-1, -2, t = 12))
         qrUrl = lbl("", 16, MUTED, false, 1)
         qrUrl.gravity = Gravity.CENTER
-        card.addView(qrUrl, lin(-1, -2, t = 2))
+        qrBody.addView(qrUrl, lin(-1, -2, t = 2))
         col.addView(card, lin(-1, -2))
 
         val add = LinearLayout(this)
@@ -1006,25 +1032,26 @@ class MainActivity : Activity(), IframeHost {
 
         val fIdx = (currentFocus?.tag as? CardTag)?.index ?: -1
         val from = if (append) shownCount else 0
-        val startRow = from / 3
+        val cols = gridCols
+        val startRow = from / cols
         while (gridBox.childCount > startRow) gridBox.removeViewAt(gridBox.childCount - 1)
-        while (cardViews.size > startRow * 3) cardViews.removeAt(cardViews.size - 1)
-        var i = startRow * 3
+        while (cardViews.size > startRow * cols) cardViews.removeAt(cardViews.size - 1)
+        var i = startRow * cols
         while (i < res.size) {
             val row = LinearLayout(this)
             row.orientation = LinearLayout.HORIZONTAL
-            for (k in 0 until 3) {
+            for (k in 0 until cols) {
                 val idx = i + k
                 if (idx < res.size) {
                     val cv = makeCard(res[idx], idx)
-                    row.addView(cv, lin(cardW, -2, r = if (k < 2) 14 else 0))
+                    row.addView(cv, lin(cardW, -2, r = if (k < cols - 1) 14 else 0))
                     cardViews.add(cv)
                 } else {
                     row.addView(View(this), lin(cardW, 1))
                 }
             }
             gridBox.addView(row, lin(-1, -2, b = 14))
-            i += 3
+            i += cols
         }
         shownQuery = sv.query
         shownCount = res.size
@@ -1034,12 +1061,24 @@ class MainActivity : Activity(), IframeHost {
         else if (currentFocus == null && !fullscreen && cardViews.isNotEmpty()) cardViews[0].requestFocus()
     }
 
+    /** Doi so bai tren moi hang (1/2/3) roi ve lai luoi ket qua. */
+    private fun applyGridCols(n: Int) {
+        gridCols = n.coerceIn(1, 3)
+        cardW = calcCardW()
+        shownQuery = ""; shownCount = 0; shownFirst = null
+        gridBox.removeAllViews()
+        cardViews.clear()
+        core?.let { renderSearch(it.controller.search.value) }
+    }
+
     private fun makeCard(h: SearchHit, idx: Int): View {
+        val horiz = gridCols == 1
         val c = LinearLayout(this)
-        c.orientation = LinearLayout.VERTICAL
+        c.orientation = if (horiz) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        if (horiz) c.gravity = Gravity.CENTER_VERTICAL
         c.setPadding(p(8), p(8), p(8), p(10))
         focusable(c, box(PANEL, 18, 2, BORDER), box(0xFF1A2230.toInt(), 18, 4, CYAN))
-        val tw = cardW - p(16)
+        val tw = if (horiz) p(300) else cardW - p(16)
         val th = FrameLayout(this)
         val iv = ImageView(this)
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
@@ -1054,8 +1093,18 @@ class MainActivity : Activity(), IframeHost {
             th.addView(d, dl)
         }
         c.addView(th, LinearLayout.LayoutParams(tw, tw * 9 / 16))
-        c.addView(lbl(h.title, 21, Color.WHITE, true, 1), lin(-1, -2, t = 10))
-        c.addView(lbl(h.channel, 18, MUTED, false, 1), lin(-1, -2, t = 2))
+        if (horiz) {
+            // 1 bai/hang: thumbnail ben trai, chu ben phai (khong keo thumbnail qua to)
+            val tcol = LinearLayout(this)
+            tcol.orientation = LinearLayout.VERTICAL
+            tcol.gravity = Gravity.CENTER_VERTICAL
+            tcol.addView(lbl(h.title, 26, Color.WHITE, true, 2), lin(-1, -2))
+            tcol.addView(lbl(h.channel, 21, MUTED, false, 1), lin(-1, -2, t = 6))
+            c.addView(tcol, lin(0, -2, 1f, l = 18, r = 10))
+        } else {
+            c.addView(lbl(h.title, 21, Color.WHITE, true, 1), lin(-1, -2, t = 10))
+            c.addView(lbl(h.channel, 18, MUTED, false, 1), lin(-1, -2, t = 2))
+        }
         c.tag = CardTag(h, idx)
         Img.load(iv, Util.thumb(h.videoId))
         c.setOnClickListener { addHit(h, false) }
@@ -1178,7 +1227,15 @@ class MainActivity : Activity(), IframeHost {
             row.addView(IconView(this, "note", if (sel) Color.WHITE else MUTED), lin(p(28), p(28)))
             row.addView(lbl(ct.name, 24, if (sel) Color.WHITE else 0xFFD6D6E2.toInt(), sel, 1), lin(0, -2, 1f, l = 14))
             row.setOnClickListener { selectCat(i) }
-            if (ct.custom) row.setOnLongClickListener { confirmDeleteCat(i); true }
+            if (ct.custom) {
+                row.setOnLongClickListener { confirmDeleteCat(i); true }
+                val del = lbl("Xoá", 18, Color.WHITE, true)
+                del.gravity = Gravity.CENTER
+                del.setPadding(p(14), p(4), p(14), p(4))
+                focusable(del, box(0x55FF1744, 16, 2, RED), box(RED, 16, 3, CYAN))
+                del.setOnClickListener { confirmDeleteCat(i) }
+                row.addView(del, lin(-2, p(38), l = 8))
+            }
             catBox.addView(row, lin(-1, p(58), b = 6))
         }
         if (fIdx >= 0 && catBox.childCount > 0) catBox.getChildAt(minOf(fIdx, catBox.childCount - 1)).requestFocus()
@@ -1227,17 +1284,37 @@ class MainActivity : Activity(), IframeHost {
     private fun confirmDeleteCat(i: Int) {
         val c = core ?: return
         val ct = cats.getOrNull(i) ?: return
-        track(
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        body.gravity = Gravity.CENTER_HORIZONTAL
+        body.setPadding(p(40), p(32), p(40), p(8))
+        val t1 = lbl("Xoá thể loại này?", 34, Color.WHITE, true)
+        t1.gravity = Gravity.CENTER
+        body.addView(t1, lin(-1, -2))
+        val t2 = lbl("“${ct.name}”", 30, RED, true)
+        t2.gravity = Gravity.CENTER
+        body.addView(t2, lin(-1, -2, t = 14))
+        val t3 = lbl("Thể loại sẽ bị xoá khỏi danh mục.\nBạn có thể tạo lại sau.", 22, MUTED)
+        t3.gravity = Gravity.CENTER
+        body.addView(t3, lin(-1, -2, t = 12))
+        val d = track(
             AlertDialog.Builder(this)
-                .setTitle("Xoá thể loại “${ct.name}”?")
-                .setPositiveButton("Xoá") { _, _ ->
-                    cats.removeAt(i)
-                    Cats.save(c.settings.sp, cats)
-                    selCat = if (selCat == i) -1 else if (selCat > i) selCat - 1 else selCat
-                    renderCats()
+                .setView(body)
+                .setPositiveButton("XOÁ") { _, _ ->
+                    val idx = cats.indexOfFirst { it === ct }
+                    if (idx >= 0) {
+                        cats.removeAt(idx)
+                        Cats.save(c.settings.sp, cats)
+                        selCat = if (selCat == idx) -1 else if (selCat > idx) selCat - 1 else selCat
+                        renderCats()
+                        toast("Đã xoá thể loại “${ct.name}”")
+                    }
                 }
-                .setNegativeButton("Giữ lại", null)
+                .setNegativeButton("GIỮ LẠI", null)
         )
+        d.window?.setGravity(Gravity.CENTER)
+        // Mac dinh dat tieu diem vao "GIU LAI" de bam nham OK khong bi xoa
+        d.getButton(AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
     }
 
     // ------------------------------------------------------------------ periodic tick (1s)
@@ -1321,6 +1398,12 @@ class MainActivity : Activity(), IframeHost {
         return Bitmap.createBitmap(px, side, side, Bitmap.Config.ARGB_8888)
     }
 
+    /** An: ma QR bien mat han, danh muc am nhac tu dong tro len tren. Hien: ma QR tro lai. */
+    private fun applyQrHidden(h: Boolean) {
+        qrBody.visibility = if (h) View.GONE else View.VISIBLE
+        qrToggle.text = if (h) "Hiện" else "Ẩn"
+    }
+
     private fun updateQr(c: Core) {
         val ip = c.ip.value
         portPill.text = "CỔNG ${c.port}"
@@ -1388,6 +1471,7 @@ class MainActivity : Activity(), IframeHost {
             "Trình phát: ${s.backend}",
             "Độ phân giải tối đa: ${s.maxHeight}p",
             "Tự phát bài gợi ý khi hàng đợi trống: ${if (s.seedAutoplay) "BẬT" else "TẮT"}",
+            "Số bài mỗi hàng kết quả: ${s.gridCols}",
             "Đặt lại ghép nối (ngắt mọi điện thoại)",
             "Xong"
         )
@@ -1400,7 +1484,8 @@ class MainActivity : Activity(), IframeHost {
                         0 -> s.backend = when (s.backend) { "AUTO" -> "EXOPLAYER"; "EXOPLAYER" -> "IFRAME"; else -> "AUTO" }
                         1 -> c.controller.setMaxHeight(when (s.maxHeight) { 360 -> 480; 480 -> 720; 720 -> 1080; else -> 360 })
                         2 -> s.seedAutoplay = !s.seedAutoplay
-                        3 -> { confirmReset(); return@setItems }
+                        3 -> { s.gridCols = when (s.gridCols) { 3 -> 2; 2 -> 1; else -> 3 }; applyGridCols(s.gridCols) }
+                        4 -> { confirmReset(); return@setItems }
                         else -> return@setItems
                     }
                     showSettings()
@@ -1453,8 +1538,18 @@ class MainActivity : Activity(), IframeHost {
         return super.dispatchKeyEvent(e)
     }
 
+    /** Phim phong to video ngay lap tuc (nhan lan nua thi thu nho vi moi phim deu thu nho). */
+    private fun isZoomKey(k: Int) = k == KeyEvent.KEYCODE_INFO || k == KeyEvent.KEYCODE_PROG_YELLOW ||
+        k == KeyEvent.KEYCODE_CHANNEL_UP
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val c = core
+        if (isZoomKey(keyCode) && event.repeatCount == 0) {
+            val st = lastUi.state
+            if (st == PState.PLAYING || st == PState.PAUSED) enterFullscreen()
+            else toast("Chưa có video đang phát")
+            return true
+        }
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             when (val tag = currentFocus?.tag) {
                 is CardTag -> addHit(tag.hit, true)
