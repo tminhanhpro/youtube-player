@@ -322,3 +322,16 @@ body.typing .transport,body.typing .mini{display:none}
 :root[data-ui="classic"] #b-play{order:1}:root[data-ui="classic"] #b-next{order:2}:root[data-ui="classic"] #b-replay{order:3}:root[data-ui="classic"] #b-mic{order:4}
 :root[data-ui="classic"] #b-vdown{order:5}:root[data-ui="classic"] #b-vup{order:6}:root[data-ui="classic"] #b-react{order:7}:root[data-ui="classic"] #b-add{order:8}
 
+
+/* quan ly the loai (danh muc TV) */
+#sheet-cats{max-height:90vh;overflow-y:auto}
+.catlist{display:flex;flex-direction:column;gap:6px}
+.catrow{display:flex;align-items:center;gap:6px;border:2px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;background:var(--bg)}
+.catrow.edit{border-color:var(--accent)}
+.catrow .cn{flex:1;min-width:0;text-align:left;background:none;color:var(--fg);font-weight:700;font-size:calc(17px * var(--fs));padding:6px 0;touch-action:manipulation}
+.catrow .cn small{display:block;font-weight:400;color:var(--muted);font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.catrow .ib{min-width:44px;min-height:44px;border-radius:10px;background:var(--line);color:var(--fg);font-size:18px;font-weight:800;touch-action:manipulation}
+.catrow .ib.bad{background:#37596f;color:#fff}
+.catform{display:flex;flex-direction:column;gap:8px}
+.catform input{min-height:48px;font-size:calc(17px * var(--fs))}
+.catempty{color:var(--muted);padding:8px 2px}

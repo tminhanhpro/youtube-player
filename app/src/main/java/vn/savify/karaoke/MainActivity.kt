@@ -295,6 +295,16 @@ class MainActivity : Activity(), IframeHost {
         coreJobs.add(scope.launch { c.controller.messages.collect { msgView.show(it.first, it.second) } })
         coreJobs.add(scope.launch { c.controller.volumeEvents.collect { showVolume(it) } })
         coreJobs.add(scope.launch {
+            c.controller.catsChanged.collect {
+                // Remote vua doi danh muc: nap lai, giu nguyen the loai dang chon (neu con)
+                val curQ = cats.getOrNull(selCat)?.q
+                cats.clear()
+                cats.addAll(Cats.load(c.settings.sp))
+                selCat = if (curQ == null) -1 else cats.indexOfFirst { it.q == curQ }
+                renderCats()
+            }
+        })
+        coreJobs.add(scope.launch {
             while (true) {
                 tick(c)
                 delay(1000)

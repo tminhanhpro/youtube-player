@@ -104,6 +104,7 @@
   <div class="field"><span id="d-theme-l"></span><div id="d-theme" class="chips"></div></div>
   <div class="field" id="d-fs-field"><span id="d-fs-l"></span><div id="d-fs" class="chips"></div></div>
   <label class="field row"><input id="d-hc" type="checkbox"><span id="d-hc-l"></span></label>
+  <button id="d-cats" class="plain"></button>
   <div class="info" id="d-info"></div>
   <button id="d-reset" class="danger"></button>
   <button id="d-close" class="plain"></button>
@@ -123,6 +124,18 @@
   <div class="field"><span id="y-mode-l"></span><div id="y-modes" class="chips"></div></div>
   <div class="field"><span id="y-genre-l"></span><div id="y-genres" class="chips"></div></div>
   <button id="y-close" class="plain"></button>
+</div>
+
+<div id="sheet-cats" class="sheet" hidden>
+  <h3 id="c-title"></h3>
+  <div id="c-list" class="catlist"></div>
+  <form id="c-form" class="catform" autocomplete="off">
+    <input id="c-name" maxlength="40" autocomplete="off">
+    <input id="c-q" maxlength="100" autocomplete="off">
+    <div class="btns"><button id="c-ok" type="submit" class="primary"></button><button id="c-cancel" type="button" class="plain" hidden></button></div>
+  </form>
+  <button id="c-reset" class="plain"></button>
+  <button id="c-close" class="plain"></button>
 </div>
 
 <div id="sheet-add" class="sheet" hidden>

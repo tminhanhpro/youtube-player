@@ -4,6 +4,7 @@
   // ------------------------------------------------------------ i18n
   var T = {
     en: {
+      cats_title: 'TV categories', cats_btn: 'Manage categories (TV)', cat_name_ph: 'Category name (e.g. Bolero)', cat_q_ph: 'Search keyword (optional, default = name)', cat_add: 'Add category', cat_save: 'Save', cat_reset: 'Restore default categories', cat_del_confirm: 'Delete this category?', cat_empty: 'No categories yet.', cat_dup: 'This category already exists', cat_changed: 'The list was changed elsewhere. Reloaded.', cat_saved: 'Saved', cat_deleted: 'Deleted', cat_edit: 'Edit', cat_up: 'Move up', cat_down: 'Move down', cat_search: 'Tap the name to search it',
       search_ph: 'Search song / paste YouTube link', tab_search: 'SEARCH', tab_queue: 'QUEUE',
       add: 'Add', added: 'Added: ', in_queue: 'In queue', play_next: 'Play next', play_now: 'Play now',
       prioritize: 'Move to top', remove: 'Remove', move_up: 'Move up', move_down: 'Move down', close: 'Close',
@@ -38,6 +39,7 @@
       q6: 'Absolutely fire! 🔥', q7: 'Golden voice! 🌟', q8: 'Keep singing! 🎶', q9: 'Better than the original! 😍', q10: 'One more song! 🙌', q11: 'Happy New Year! 🧧', q12: 'Congrats on the wedding! 💍', q13: 'Happy housewarming! 🏠', q14: 'Happy birthday to our elder! 🎂', q15: 'Cheers to good health! 🥂', q16: 'Bottoms up! 🍻', q17: 'Perfect score! 💯', q18: 'Goosebumps! 😳', q19: 'Play something upbeat! 💃', q20: 'Next song please! ⏭️', q21: 'Turn it up! 🔊', q22: 'A bit quieter please! 🔉', q23: 'Sing along everyone! 🎤', q24: 'Mic is free, who is next? 🎙️', q25: 'Thank you all! 🙏', q26: 'Love you all! 💖', q27: 'So much fun! 🥳', q28: 'Top of the top! 👑', q29: 'Hello everyone! 👋', q30: 'Have fun everyone! 🌈', q31: 'This song is mine! 😎', q32: 'Sing it again! 🔁', q33: 'Everyone sounds great! 💫', q34: 'Time to eat! 🍽️', q35: 'See you next song! 👋'
     },
     vi: {
+      cats_title: 'Thể loại trên TV', cats_btn: 'Quản lý thể loại (TV)', cat_name_ph: 'Tên thể loại (vd: Bolero)', cat_q_ph: 'Từ khoá tìm (không bắt buộc, mặc định = tên)', cat_add: 'Thêm thể loại', cat_save: 'Lưu', cat_reset: 'Khôi phục thể loại mặc định', cat_del_confirm: 'Xoá thể loại này?', cat_empty: 'Chưa có thể loại nào.', cat_dup: 'Thể loại này đã có', cat_changed: 'Danh sách vừa được đổi ở nơi khác. Đã tải lại.', cat_saved: 'Đã lưu', cat_deleted: 'Đã xoá', cat_edit: 'Sửa', cat_up: 'Lên', cat_down: 'Xuống', cat_search: 'Chạm tên để tìm bài',
       search_ph: 'Tìm bài hát / dán link YouTube', tab_search: 'TÌM KIẾM', tab_queue: 'DANH SÁCH',
       add: 'Thêm', added: 'Đã thêm: ', in_queue: 'Đã chọn', play_next: 'Phát tiếp theo', play_now: 'Phát ngay',
       prioritize: 'Đưa lên đầu', remove: 'Xóa', move_up: 'Lên', move_down: 'Xuống', close: 'Đóng',
@@ -860,7 +862,7 @@
   }
   function openSheet(id) { $('scrim').hidden = false; $(id).hidden = false; }
   function closeAll() {
-    ['drawer', 'sheet-yt', 'sheet-add', 'sheet-menu', 'sheet-react', 'donate-big'].forEach(function (i) { $(i).hidden = true; });
+    ['drawer', 'sheet-yt', 'sheet-cats', 'sheet-add', 'sheet-menu', 'sheet-react', 'donate-big'].forEach(function (i) { $(i).hidden = true; });
     $('scrim').hidden = true;
     try { $('r-msg').blur(); } catch (e) {}
   }
@@ -1010,6 +1012,7 @@
     $('d-ui-l').textContent = t('ui_mode'); renderUiChips();
     $('d-fs-l').textContent = t('text_size'); $('d-hc-l').textContent = t('hc_mode'); renderFsChips();
     $('y-genre-l').textContent = t('genre');
+    $('d-cats').textContent = t('cats_btn');
     renderFilterChips(); updateFilterUi();
     $('y-close').textContent = t('close');
     $('a-title').textContent = t('paste_title');
@@ -1037,8 +1040,80 @@
     $('d-info').style.whiteSpace = 'pre-line';
   }
 
+
+  // ------------------------------------------------------------ quan ly the loai tren TV
+  var cats = [], catEdit = -1;
+  function catResetForm() {
+    catEdit = -1; $('c-name').value = ''; $('c-q').value = '';
+    $('c-ok').textContent = t('cat_add'); $('c-cancel').hidden = true;
+  }
+  function catApply(r) { cats = (r && r.cats) || []; renderCats(); }
+  function catCall(op, body, okMsg) {
+    return api('POST', '/api/cats/' + op, body).then(function (r) {
+      catApply(r); if (okMsg) toast(okMsg, null, null, 'ok'); return true;
+    }).catch(function (e) {
+      if (e.code === 'DUPLICATE') toast(t('cat_dup'));
+      else if (e.code === 'CAT_CHANGED' || e.code === 'CAT_NOT_FOUND') { toast(t('cat_changed')); loadCats(); catResetForm(); }
+      else toast(errText(e));
+      return false;
+    });
+  }
+  function loadCats() { return api('GET', '/api/cats').then(catApply).catch(function (e) { toast(errText(e)); }); }
+  function renderCats() {
+    var box = $('c-list'); box.textContent = '';
+    if (!cats.length) { box.appendChild(el('div', 'catempty', t('cat_empty'))); return; }
+    cats.forEach(function (c, i) {
+      var row = el('div', 'catrow' + (catEdit === i ? ' edit' : ''));
+      var n = el('button', 'cn', c.name); n.type = 'button';
+      if (c.q && c.q !== c.name) n.appendChild(el('small', null, c.q));
+      n.addEventListener('click', function () {
+        closeAll(); showTab('search'); $('q').value = c.q; onInput(true);
+      });
+      row.appendChild(n);
+      function ib(txt, label, cls, fn, dis) {
+        var b = el('button', 'ib' + (cls ? ' ' + cls : ''), txt); b.type = 'button'; b.setAttribute('aria-label', label);
+        if (dis) b.disabled = true; else b.addEventListener('click', fn);
+        row.appendChild(b);
+      }
+      ib('↑', t('cat_up'), '', function () { catCall('move', { index: i, oldName: c.name, to: i - 1 }); }, i === 0);
+      ib('↓', t('cat_down'), '', function () { catCall('move', { index: i, oldName: c.name, to: i + 1 }); }, i === cats.length - 1);
+      ib('✎', t('cat_edit'), '', function () {
+        catEdit = i; $('c-name').value = c.name; $('c-q').value = c.q;
+        $('c-ok').textContent = t('cat_save'); $('c-cancel').hidden = false; renderCats(); $('c-name').focus();
+      });
+      ib('✕', t('remove'), 'bad', function () {
+        if (!confirm(t('cat_del_confirm') + '\n“' + c.name + '”')) return;
+        if (catEdit === i) catResetForm();
+        catCall('delete', { index: i, oldName: c.name }, t('cat_deleted'));
+      });
+      box.appendChild(row);
+    });
+  }
+  function openCats() {
+    $('c-title').textContent = t('cats_title');
+    $('c-name').placeholder = t('cat_name_ph'); $('c-q').placeholder = t('cat_q_ph');
+    $('c-reset').textContent = t('cat_reset'); $('c-close').textContent = t('close'); $('c-cancel').textContent = t('cancel');
+    catResetForm(); renderCats(); closeAll(); openSheet('sheet-cats'); loadCats();
+  }
+  function wireCats() {
+    $('d-cats').textContent = t('cats_btn');
+    $('d-cats').addEventListener('click', openCats);
+    $('c-close').addEventListener('click', closeAll);
+    $('c-cancel').addEventListener('click', function () { catResetForm(); renderCats(); });
+    $('c-reset').addEventListener('click', function () { catResetForm(); catCall('reset', {}, t('cat_saved')); });
+    $('c-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = $('c-name').value.trim(), q = $('c-q').value.trim();
+      if (!name) { $('c-name').focus(); return; }
+      var done = function (ok) { if (ok) { catResetForm(); renderCats(); } };
+      if (catEdit >= 0 && cats[catEdit]) catCall('update', { index: catEdit, oldName: cats[catEdit].name, name: name, q: q }, t('cat_saved')).then(done);
+      else catCall('add', { name: name, q: q }, t('cat_saved')).then(done);
+    });
+  }
+
   // ------------------------------------------------------------ wire up
   function init() {
+    wireCats();
     setIcon('b-play', 'play'); setIcon('b-next', 'next'); setIcon('b-replay', 'replay'); setIcon('b-mic', 'mic'); setIcon('q-mic', 'mic');
     setIcon('b-vdown', 'vdown'); setIcon('b-vup', 'vup'); setIcon('b-react', 'react'); setIcon('b-add', 'link');
     $('d-lang').value = lang;

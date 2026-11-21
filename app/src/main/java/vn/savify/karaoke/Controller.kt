@@ -84,6 +84,8 @@ class Controller(
     val volumeEvents = MutableSharedFlow<Int>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** Tin nhan chu chay tu remote -> man hinh TV (nguoi gui, noi dung). */
+    /** Remote vua them/sua/xoa the loai -> TV nap lai danh sach tu SharedPreferences. */
+    val catsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val messages = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     fun message(sender: String, text: String) { messages.tryEmit(Pair(sender, text)) }
 

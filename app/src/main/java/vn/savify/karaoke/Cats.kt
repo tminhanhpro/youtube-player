@@ -59,4 +59,14 @@ object Cats {
         list.forEach { arr.put(JSONObject().put("n", it.name).put("q", it.q).put("c", it.custom)) }
         sp.edit().putString("cats2", arr.toString()).apply()
     }
+
+    fun toJson(list: List<Cat>): JSONArray {
+        val arr = JSONArray()
+        list.forEachIndexed { i, c -> arr.put(JSONObject().put("index", i).put("name", c.name).put("q", c.q).put("custom", c.custom)) }
+        return arr
+    }
+
+    /** Chuan hoa ten/tu khoa tu remote: bo ky tu dieu khien, gop khoang trang, cat do dai. */
+    fun clean(x: String, max: Int): String =
+        x.replace(Regex("[\\p{Cntrl}\\u200B-\\u200F\\u202A-\\u202E]"), " ").replace(Regex("\\s+"), " ").trim().take(max)
 }

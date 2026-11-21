@@ -340,6 +340,54 @@ class KaraokeServer(
                 return json(JSONObject().put("ok", true).put("dropped", !pass))
             }
 
+            method == Method.GET && p0 == "cats" -> return catsReply()
+
+            method == Method.POST && p0 == "cats" -> {
+                val b = body(s)
+                val op = p1 ?: "add"
+                ctl.onMain {
+                    ctl.noteActor(dev)
+                    val list = Cats.load(settings.sp)
+                    val idx = b.optInt("index", -1)
+                    // Chong thao tac nham khi danh sach da bi doi: ten cu phai khop voi vi tri
+                    fun target(): Cat {
+                        val c = list.getOrNull(idx) ?: throw ApiError(404, "CAT_NOT_FOUND", "Category not found")
+                        if (b.has("oldName") && c.name != b.optString("oldName")) throw ApiError(409, "CAT_CHANGED", "Category list changed")
+                        return c
+                    }
+                    when (op) {
+                        "add", "update" -> {
+                            val name = Cats.clean(b.optString("name", ""), 40)
+                            if (name.isEmpty()) throw ApiError(400, "EMPTY_NAME", "Name required")
+                            val q = Cats.clean(b.optString("q", ""), 100).ifEmpty { name }
+                            if (op == "add") {
+                                if (list.size >= 60) throw ApiError(400, "TOO_MANY", "Too many categories")
+                                if (list.any { it.name.equals(name, true) }) throw ApiError(409, "DUPLICATE", "Already exists")
+                                list.add(Cat(name, q, true))
+                            } else {
+                                val c = target()
+                                if (list.any { it !== c && it.name.equals(name, true) }) throw ApiError(409, "DUPLICATE", "Already exists")
+                                list[idx] = Cat(name, q, c.custom)
+                            }
+                        }
+                        "delete" -> { target(); list.removeAt(idx) }
+                        "move" -> {
+                            val c = target()
+                            val to = b.optInt("to", idx).coerceIn(0, list.size - 1)
+                            list.removeAt(idx); list.add(to, c)
+                        }
+                        "reset" -> {
+                            val have = list.map { it.name }
+                            Cats.defaults().filter { it.name !in have }.reversed().forEach { list.add(0, it) }
+                        }
+                        else -> throw ApiError(404, "NOT_FOUND", "Not found")
+                    }
+                    Cats.save(settings.sp, list)
+                    ctl.catsChanged.tryEmit(Unit)
+                }
+                return catsReply()
+            }
+
             method == Method.POST && p0 == "karaoke" -> {
                 val b = body(s)
                 ctl.setKaraoke(b.optBoolean("on", false))
@@ -365,6 +413,9 @@ class KaraokeServer(
         }
         throw ApiError(404, "NOT_FOUND", "Not found")
     }
+
+    private fun catsReply(): Response =
+        json(JSONObject().put("cats", Cats.toJson(ctl.onMain { Cats.load(settings.sp) })))
 
     private fun norm(x: String): String =
         java.text.Normalizer.normalize(x.lowercase(), java.text.Normalizer.Form.NFD)
