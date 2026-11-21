@@ -32,7 +32,7 @@
       link_found: 'YouTube link detected', add_end: 'Add to queue', add_next: 'Play next', link_loading: 'Reading the link…',
       tab_favs: '♥ FAVORITES', fav: 'Favorite', fav_on: 'Saved', fav_add: 'Add to favorites', unfav: 'Remove from favorites',
       fav_added: 'Saved to favorites', fav_removed: 'Removed from favorites', undo: 'Undo',
-      fav_empty: 'No favorite songs yet. Tap “♡ Favorite” on a song to keep it here (saved on this phone).',
+      fav_empty: 'No favorite songs yet. Tap “♡ Favorite” on a song to keep it here (saved on the TV, shared by all phones).',
       react_title: 'Reactions', react_hint: 'Tap to send to the TV screen', react_fail: 'Could not send. Check the connection.',
       msg_ph: 'Type a message for the TV screen…', msg_send: 'Send', msg_sent: 'Sent to the TV', msg_wait: 'Please wait a moment, then send again',
       q1: 'Great singing! 👏', q2: 'Happy birthday! 🎂', q3: 'Cheers! 🍻', q4: 'Your turn to sing! 🎤', q5: 'Love this song ❤️',
@@ -67,7 +67,7 @@
       link_found: 'Đã nhận link YouTube', add_end: 'Thêm vào danh sách', add_next: 'Phát tiếp theo', link_loading: 'Đang đọc link…',
       tab_favs: '♥ YÊU THÍCH', fav: 'Yêu thích', fav_on: 'Đã thích', fav_add: 'Thêm vào yêu thích', unfav: 'Bỏ yêu thích',
       fav_added: 'Đã thêm vào yêu thích', fav_removed: 'Đã bỏ khỏi yêu thích', undo: 'Hoàn tác',
-      fav_empty: 'Chưa có bài yêu thích. Bấm “♡ Yêu thích” ở bài hát để lưu lại đây (lưu trên điện thoại này).',
+      fav_empty: 'Chưa có bài yêu thích. Bấm “♡ Yêu thích” ở bài hát để lưu lại đây (lưu trên TV, dùng chung cho mọi điện thoại).',
       react_title: 'Bộ sưu tập', react_hint: 'Bấm để gửi hiệu ứng lên màn hình TV', react_fail: 'Gửi không được. Kiểm tra kết nối nhé.',
       msg_ph: 'Nhắn tin lên màn hình TV…', msg_send: 'Gửi', msg_sent: 'Đã gửi lên TV', msg_wait: 'Chờ một chút rồi gửi tiếp nhé',
       q1: 'Hát hay quá! 👏', q2: 'Chúc mừng sinh nhật! 🎂', q3: 'Cạn ly! 🍻', q4: 'Mời bạn lên hát! 🎤', q5: 'Bài này hay lắm ❤️',
@@ -243,6 +243,7 @@
   function applyState(s) {
     var first = (S === null);
     try { syncKaraoke(s.karaoke); } catch (e) {}
+    try { syncFavVer(s.favVer); } catch (e) {}
     try { mirrorTvSearch(s.tvSearch); } catch (e) {}
     S = s;
     // counter
@@ -420,12 +421,8 @@
     });
   }
 
-  // ------------------------------------------------------------ favorites (luu tren chinh dien thoai remote)
-  var favs = loadFavs();
-  function loadFavs() {
-    try { var a = JSON.parse(pref('favs') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
-  }
-  function saveFavs() { pref('favs', JSON.stringify(favs)); }
+  // ------------------------------------------------------------ favorites (luu tren TV, dung chung moi dien thoai)
+  var favs = [], favVerSeen = null, favMigrating = false;
   function favIndex(id) {
     for (var i = 0; i < favs.length; i++) { if (favs[i].videoId === id) return i; }
     return -1;
@@ -435,19 +432,49 @@
     return { videoId: f.videoId, title: f.title, channel: f.channel, durationSec: f.durationSec || 0,
              thumbnailUrl: 'https://i.ytimg.com/vi/' + f.videoId + '/mqdefault.jpg' };
   }
+  function applyFavReply(r) {
+    if (r && r.favs) {
+      favs = r.favs;
+      if (typeof r.ver === 'number') favVerSeen = r.ver;
+      syncFavs();
+    }
+  }
+  function fetchFavs() {
+    return api('GET', '/api/favs').then(function (r) { applyFavReply(r); migrateLocalFavs(); }).catch(function () {});
+  }
+  function syncFavVer(v) {
+    if (typeof v !== 'number' || v === favVerSeen) return;
+    favVerSeen = v; fetchFavs();
+  }
+  // Yeu thich cu luu tren dien thoai -> day len TV mot lan roi xoa ban cu
+  function migrateLocalFavs() {
+    if (favMigrating) return;
+    var old = [];
+    try { old = JSON.parse(pref('favs') || '[]'); } catch (e) { old = []; }
+    if (!Array.isArray(old) || !old.length) return;
+    favMigrating = true;
+    api('POST', '/api/favs/import', { items: old }).then(function (r) { pref('favs', ''); applyFavReply(r); })
+      .catch(function () {}).then(function () { favMigrating = false; });
+  }
+  function favCall(op, body) {
+    return api('POST', '/api/favs/' + op, body).then(applyFavReply).catch(function (e) { toast(errText(e)); fetchFavs(); });
+  }
   function toggleFav(it) {
     var id = it.videoId, i = favIndex(id);
+    var body = { videoId: id, title: it.title || '', channel: it.channel || '', durationSec: it.durationSec || 0 };
     if (i >= 0) {
       var removed = favs.splice(i, 1)[0];
-      saveFavs(); syncFavs();
+      syncFavs(); favCall('remove', { videoId: id });
       toast(t('fav_removed'), t('undo'), function () {
-        if (favIndex(id) < 0) { favs.splice(Math.min(i, favs.length), 0, removed); saveFavs(); syncFavs(); }
+        if (favIndex(id) < 0) {
+          favs.splice(Math.min(i, favs.length), 0, removed); syncFavs();
+          favCall('add', { videoId: id, title: removed.title || '', channel: removed.channel || '', durationSec: removed.durationSec || 0, index: i });
+        }
       });
     } else {
-      favs.unshift({ videoId: id, title: it.title || '', channel: it.channel || '', durationSec: it.durationSec || 0 });
-      if (favs.length > 300) favs.length = 300;
-      saveFavs(); syncFavs();
+      favs.unshift(body); syncFavs();
       pill('♥ ' + t('fav_added'));
+      favCall('add', body);
     }
   }
   function paintFav(b) {

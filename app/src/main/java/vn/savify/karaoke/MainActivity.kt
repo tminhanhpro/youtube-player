@@ -304,6 +304,17 @@ class MainActivity : Activity(), IframeHost {
         coreJobs.add(scope.launch { c.controller.messages.collect { msgView.show(it.first, it.second) } })
         coreJobs.add(scope.launch { c.controller.volumeEvents.collect { showVolume(it) } })
         coreJobs.add(scope.launch {
+            c.controller.favsUpdated.collect {
+                // Remote vua doi Yeu thich: nap lai tu bo nho TV
+                favs.clear()
+                favs.addAll(Favs.load(c.settings.sp))
+                if (favMode) {
+                    val fi = (currentFocus?.tag as? CardTag)?.index ?: 0
+                    renderFavs(fi)
+                } else refreshHearts()
+            }
+        })
+        coreJobs.add(scope.launch {
             c.controller.catsChanged.collect {
                 // Remote vua doi danh muc: nap lai, giu nguyen the loai dang chon (neu con)
                 val curQ = cats.getOrNull(selCat)?.q
@@ -467,10 +478,19 @@ class MainActivity : Activity(), IframeHost {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
+        // Thu nho anh nhieu buoc (chia doi dan) de vien min, khong bi rang cua nhu khi thu nho 1 lan
         val logo = ImageView(this)
-        logo.setImageResource(R.drawable.logo_mark)
+        val raw = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.logo_mark)
+        var lw = p(64)
+        var lh = lw * raw.height / raw.width
+        if (lh > p(48)) { lh = p(48); lw = lh * raw.width / raw.height }
+        var cur = raw
+        while (cur.width / 2 >= lw && cur.height / 2 >= lh) {
+            cur = Bitmap.createScaledBitmap(cur, cur.width / 2, cur.height / 2, true)
+        }
+        logo.setImageBitmap(Bitmap.createScaledBitmap(cur, lw, lh, true))
         logo.scaleType = ImageView.ScaleType.FIT_CENTER
-        row.addView(logo, lin(p(64), p(48)))
+        row.addView(logo, lin(lw, lh))
         row.addView(lbl("Youtube Player", 30, Color.WHITE, true), lin(-2, -2, l = 14))
         val tag = lbl("MUSIC TV", 18, Color.WHITE, true)
         tag.background = box(RED, 8)
@@ -1165,6 +1185,7 @@ class MainActivity : Activity(), IframeHost {
         if (isFav(h.videoId)) { toast("Bài này đã có trong Yêu thích"); return }
         favs.add(0, h)
         Favs.save(c.settings.sp, favs)
+        c.controller.bumpFavVersion()
         refreshHearts()
         toast("❤ Đã thêm vào Yêu thích: ${h.title}")
     }
@@ -1175,6 +1196,7 @@ class MainActivity : Activity(), IframeHost {
         if (pos < 0) return
         favs.removeAt(pos)
         Favs.save(c.settings.sp, favs)
+        c.controller.bumpFavVersion()
         toast("Đã xoá khỏi Yêu thích")
         if (favMode) renderFavs(pos)
     }

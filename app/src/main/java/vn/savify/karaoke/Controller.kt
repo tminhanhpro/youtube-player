@@ -86,6 +86,12 @@ class Controller(
     /** Tin nhan chu chay tu remote -> man hinh TV (nguoi gui, noi dung). */
     /** Remote vua them/sua/xoa the loai -> TV nap lai danh sach tu SharedPreferences. */
     val catsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /** Yeu thich bi doi tu remote -> TV nap lai. favVersion tang moi khi danh sach doi (remote dung de biet can tai lai). */
+    val favsUpdated = MutableSharedFlow<Unit>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    var favVersion = 0
+        private set
+    fun bumpFavVersion() { favVersion++ }
+    fun noteFavsChangedByRemote() { favVersion++; favsUpdated.tryEmit(Unit) }
     val messages = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     fun message(sender: String, text: String) { messages.tryEmit(Pair(sender, text)) }
 
@@ -957,6 +963,7 @@ class Controller(
         o.put("volume", volume)
         o.put("tvSearch", searchJson())
         o.put("karaoke", karaoke.value)
+        o.put("favVer", favVersion)
         o.put("queueVersion", queueVersion)
         o.put("fallbackHint", fallbackHint && usingIframe)
         o.put("netWait", netWait)

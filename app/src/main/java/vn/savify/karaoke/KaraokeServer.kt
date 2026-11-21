@@ -388,6 +388,42 @@ class KaraokeServer(
                 return catsReply()
             }
 
+            method == Method.GET && p0 == "favs" -> return favsReply()
+
+            method == Method.POST && p0 == "favs" -> {
+                val b = body(s)
+                val op = p1 ?: "add"
+                ctl.onMain {
+                    val list = Favs.load(settings.sp)
+                    fun hit(o: JSONObject): SearchHit? {
+                        val id = Util.parseVideoId(o.optString("videoId", "")) ?: return null
+                        return SearchHit(id, Cats.clean(o.optString("title", ""), 200), Cats.clean(o.optString("channel", ""), 100), o.optInt("durationSec", 0).coerceAtLeast(0))
+                    }
+                    when (op) {
+                        "add" -> {
+                            val h = hit(b) ?: throw ApiError(400, "INVALID_URL", "Bad video id")
+                            if (list.none { it.videoId == h.videoId }) list.add(b.optInt("index", 0).coerceIn(0, list.size), h)
+                        }
+                        "remove" -> {
+                            val id = b.optString("videoId", "")
+                            list.removeAll { it.videoId == id }
+                        }
+                        "import" -> {
+                            val arr = b.optJSONArray("items") ?: JSONArray()
+                            for (i in 0 until minOf(arr.length(), 300)) {
+                                val h = hit(arr.optJSONObject(i) ?: continue) ?: continue
+                                if (list.none { it.videoId == h.videoId }) list.add(h)
+                            }
+                        }
+                        else -> throw ApiError(404, "NOT_FOUND", "Not found")
+                    }
+                    while (list.size > 300) list.removeAt(list.size - 1)
+                    Favs.save(settings.sp, list)
+                    ctl.noteFavsChangedByRemote()
+                }
+                return favsReply()
+            }
+
             method == Method.POST && p0 == "karaoke" -> {
                 val b = body(s)
                 ctl.setKaraoke(b.optBoolean("on", false))
@@ -412,6 +448,15 @@ class KaraokeServer(
             }
         }
         throw ApiError(404, "NOT_FOUND", "Not found")
+    }
+
+    private fun favsReply(): Response {
+        val (list, ver) = ctl.onMain { Pair(Favs.load(settings.sp), ctl.favVersion) }
+        val arr = JSONArray()
+        list.forEach {
+            arr.put(JSONObject().put("videoId", it.videoId).put("title", it.title).put("channel", it.channel).put("durationSec", it.durationSec))
+        }
+        return json(JSONObject().put("favs", arr).put("ver", ver))
     }
 
     private fun catsReply(): Response =
