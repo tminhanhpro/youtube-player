@@ -441,6 +441,22 @@ class Controller(
 
     // TV lifecycle ------------------------------------------------------
 
+    /**
+     * Phat lai chac chan sau khi tim bang giong noi (man hinh nhan dang giong noi lam TV roi foreground
+     * nen co the bi pause/autoPause hoac player dung ma state van la PLAYING).
+     */
+    fun forceResume() {
+        userPaused = false
+        autoPaused = false
+        when (state) {
+            PState.PAUSED -> applyResume()
+            PState.PLAYING -> if (!usingIframe) {
+                if (!player.playWhenReady || (player.playbackState == Player.STATE_READY && !player.isPlaying)) player.play()
+            } else iframeHost?.resume()
+            else -> {}
+        }
+    }
+
     fun tvBackground() {
         if (state == PState.PLAYING) {
             autoPaused = true

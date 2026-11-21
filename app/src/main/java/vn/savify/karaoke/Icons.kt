@@ -62,6 +62,18 @@ class IconView(ctx: Context, var kind: String, var color: Int = Color.WHITE) : V
                 c.drawArc(RectF(5.5f, 6f, 18.5f, 19f), 0f, 180f, false, line)
                 c.drawLine(12f, 19f, 12f, 22f, line)
             }
+            "heart" -> {
+                val h = Path()
+                h.moveTo(12f, 21f)
+                h.cubicTo(5f, 15.5f, 2.5f, 11.5f, 2.5f, 8.2f)
+                h.cubicTo(2.5f, 5.5f, 4.6f, 3.5f, 7.2f, 3.5f)
+                h.cubicTo(9.2f, 3.5f, 11f, 4.6f, 12f, 6.4f)
+                h.cubicTo(13f, 4.6f, 14.8f, 3.5f, 16.8f, 3.5f)
+                h.cubicTo(19.4f, 3.5f, 21.5f, 5.5f, 21.5f, 8.2f)
+                h.cubicTo(21.5f, 11.5f, 19f, 15.5f, 12f, 21f)
+                h.close()
+                c.drawPath(h, fill)
+            }
             "plus" -> { c.drawLine(12f, 5f, 12f, 19f, line); c.drawLine(5f, 12f, 19f, 12f, line) }
             "dot" -> c.drawCircle(12f, 12f, 6f, fill)
             "eq" -> { c.drawRect(4f, 11f, 8f, 20f, fill); c.drawRect(10f, 4f, 14f, 20f, fill); c.drawRect(16f, 8f, 20f, 20f, fill) }

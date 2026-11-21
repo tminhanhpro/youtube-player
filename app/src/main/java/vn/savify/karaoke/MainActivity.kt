@@ -78,6 +78,7 @@ class MainActivity : Activity(), IframeHost {
         const val RED = 0xFFFF1744.toInt()
         const val MUTED = 0xFF9A9AB0.toInt()
         const val CYAN = 0xFF29B6F6.toInt()
+        const val PINK = 0xFFFF4D8D.toInt()
         const val GREEN = 0xFF2ECC71.toInt()
         const val REQ_VOICE = 77
     }
@@ -157,6 +158,12 @@ class MainActivity : Activity(), IframeHost {
     private var dialogs = 0
 
     private val cats = ArrayList<Cat>()
+    private val favs = ArrayList<SearchHit>()
+    private var favMode = false
+    private var favSearchQuery = ""
+    private lateinit var favBtn: LinearLayout
+    private lateinit var countdownTv: TextView
+    private var voiceWasPlaying = false
     private var selCat = 0
     private var startedSearch = false
 
@@ -285,6 +292,8 @@ class MainActivity : Activity(), IframeHost {
         c.controller.attachIframeHost(this)
         cats.clear()
         cats.addAll(Cats.load(c.settings.sp))
+        favs.clear()
+        favs.addAll(Favs.load(c.settings.sp))
         applyQrHidden(c.settings.qrHidden)
         if (gridCols != c.settings.gridCols) applyGridCols(c.settings.gridCols)
         renderCats()
@@ -302,6 +311,12 @@ class MainActivity : Activity(), IframeHost {
                 cats.addAll(Cats.load(c.settings.sp))
                 selCat = if (curQ == null) -1 else cats.indexOfFirst { it.q == curQ }
                 renderCats()
+            }
+        })
+        coreJobs.add(scope.launch {
+            while (true) {
+                autoFullscreenCheck(c)
+                delay(200)
             }
         })
         coreJobs.add(scope.launch {
@@ -455,7 +470,7 @@ class MainActivity : Activity(), IframeHost {
         val logo = ImageView(this)
         logo.setImageResource(R.drawable.logo_mark)
         logo.scaleType = ImageView.ScaleType.FIT_CENTER
-        row.addView(logo, lin(p(58), p(40)))
+        row.addView(logo, lin(p(64), p(48)))
         row.addView(lbl("Youtube Player", 30, Color.WHITE, true), lin(-2, -2, l = 14))
         val tag = lbl("MUSIC TV", 18, Color.WHITE, true)
         tag.background = box(RED, 8)
@@ -542,6 +557,15 @@ class MainActivity : Activity(), IframeHost {
         add.addView(lbl("Tạo Thể Loại Mới", 24, Color.WHITE), lin(-2, -2, l = 10))
         add.setOnClickListener { createCategoryDialog() }
         col.addView(add, lin(-1, p(64), t = 16))
+
+        favBtn = LinearLayout(this)
+        favBtn.orientation = LinearLayout.HORIZONTAL
+        favBtn.gravity = Gravity.CENTER
+        favBtn.addView(IconView(this, "heart", Color.WHITE), lin(p(28), p(28)))
+        favBtn.addView(lbl("Yêu Thích", 24, Color.WHITE, true), lin(-2, -2, l = 10))
+        favBtn.setOnClickListener { showFavorites() }
+        updateFavBtn()
+        col.addView(favBtn, lin(-1, p(64), t = 10))
 
         col.addView(lbl("DANH MỤC ÂM NHẠC", 18, MUTED, true), lin(-2, -2, l = 8, t = 20, b = 8))
         val sv = ScrollView(this)
@@ -795,6 +819,12 @@ class MainActivity : Activity(), IframeHost {
         nlp.setMargins(0, p(12), p(12), 0)
         videoBox.addView(nowBadge, nlp)
 
+        countdownTv = lbl("", 72, Color.WHITE, true)
+        countdownTv.gravity = Gravity.CENTER
+        countdownTv.background = box(0xAA000000.toInt(), 60, 4, 0xFFFF4D8D.toInt())
+        countdownTv.visibility = View.GONE
+        videoBox.addView(countdownTv, FrameLayout.LayoutParams(p(120), p(120), Gravity.CENTER))
+
         val fs = FrameLayout(this)
         focusable(fs, box(0x99000000.toInt(), 30, 2, 0x55FFFFFF), box(0xCC000000.toInt(), 30, 4, CYAN))
         fs.addView(IconView(this, "fullscreen", Color.WHITE), FrameLayout.LayoutParams(p(30), p(30), Gravity.CENTER))
@@ -843,6 +873,7 @@ class MainActivity : Activity(), IframeHost {
         val st = lastUi.state
         if (st != PState.PLAYING && st != PState.PAUSED) return
         fullscreen = true
+        countdownTv.visibility = View.GONE
         savedFocus = currentFocus
         dash.visibility = View.INVISIBLE
         fsBtn.visibility = View.GONE
@@ -992,6 +1023,11 @@ class MainActivity : Activity(), IframeHost {
     // ------------------------------------------------------------------ search grid
 
     private fun renderSearch(sv: SearchState) {
+        if (favMode) {
+            // Dang xem Yeu thich: giu nguyen, tru khi co tim kiem moi (vd tu dien thoai)
+            if (sv.query == favSearchQuery) return
+            leaveFavMode()
+        }
         status.text = when {
             sv.loading && sv.results.isEmpty() -> "Đang tìm “${sv.query}”…"
             sv.error != null && sv.results.isEmpty() -> "Không tìm được: ${sv.error}"
@@ -1048,7 +1084,7 @@ class MainActivity : Activity(), IframeHost {
         shownQuery = ""; shownCount = 0; shownFirst = null
         gridBox.removeAllViews()
         cardViews.clear()
-        core?.let { renderSearch(it.controller.search.value) }
+        if (favMode) renderFavs(0) else core?.let { renderSearch(it.controller.search.value) }
     }
 
     private fun makeCard(h: SearchHit, idx: Int): View {
@@ -1072,6 +1108,12 @@ class MainActivity : Activity(), IframeHost {
             dl.setMargins(0, 0, p(8), p(8))
             th.addView(d, dl)
         }
+        val hv = IconView(this, "heart", PINK)
+        hv.tag = "heart"
+        hv.visibility = if (isFav(h.videoId)) View.VISIBLE else View.GONE
+        val hlp = FrameLayout.LayoutParams(p(30), p(30), Gravity.TOP or Gravity.START)
+        hlp.setMargins(p(8), p(8), 0, 0)
+        th.addView(hv, hlp)
         c.addView(th, LinearLayout.LayoutParams(tw, tw * 9 / 16))
         if (horiz) {
             // 1 bai/hang: thumbnail ben trai, chu ben phai (khong keo thumbnail qua to)
@@ -1088,14 +1130,101 @@ class MainActivity : Activity(), IframeHost {
         c.tag = CardTag(h, idx)
         Img.load(iv, Util.thumb(h.videoId))
         c.setOnClickListener { addHit(h, false) }
-        c.setOnLongClickListener { addHit(h, true); true }
+        // Nhan 1 lan OK = them vao danh sach phat; giu OK = them vao Yeu thich (trong muc Yeu thich: giu OK = xoa)
+        c.setOnLongClickListener { if (favMode) removeFav(h) else addFav(h); true }
         c.setOnFocusChangeListener { _, f ->
             if (f) {
                 val total = core?.controller?.search?.value?.results?.size ?: 0
-                if (idx >= total - 4) tvLoadMore()
+                if (!favMode && idx >= total - 4) tvLoadMore()
             }
         }
         return c
+    }
+
+    // ------------------------------------------------------------------ yeu thich
+
+    private fun isFav(id: String) = favs.any { it.videoId == id }
+
+    private fun updateFavBtn() {
+        focusable(
+            favBtn,
+            box(if (favMode) PINK else 0xFFC2185B.toInt(), 22),
+            box(PINK, 22, 4, Color.WHITE)
+        )
+    }
+
+    private fun refreshHearts() {
+        for (cv in cardViews) {
+            val tg = cv.tag as? CardTag ?: continue
+            cv.findViewWithTag<View>("heart")?.visibility = if (isFav(tg.hit.videoId)) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun addFav(h: SearchHit) {
+        val c = core ?: return
+        if (isFav(h.videoId)) { toast("Bài này đã có trong Yêu thích"); return }
+        favs.add(0, h)
+        Favs.save(c.settings.sp, favs)
+        refreshHearts()
+        toast("❤ Đã thêm vào Yêu thích: ${h.title}")
+    }
+
+    private fun removeFav(h: SearchHit) {
+        val c = core ?: return
+        val pos = favs.indexOfFirst { it.videoId == h.videoId }
+        if (pos < 0) return
+        favs.removeAt(pos)
+        Favs.save(c.settings.sp, favs)
+        toast("Đã xoá khỏi Yêu thích")
+        if (favMode) renderFavs(pos)
+    }
+
+    private fun showFavorites() {
+        val c = core ?: return
+        searchJob?.cancel()
+        favMode = true
+        favSearchQuery = c.controller.search.value.query
+        selCat = -1
+        renderCats()
+        updateFavBtn()
+        renderFavs(0)
+    }
+
+    private fun leaveFavMode() {
+        if (!favMode) return
+        favMode = false
+        updateFavBtn()
+        shownQuery = ""; shownCount = 0; shownFirst = null
+        gridBox.removeAllViews()
+        cardViews.clear()
+    }
+
+    private fun renderFavs(focusIdx: Int) {
+        gridBox.removeAllViews()
+        cardViews.clear()
+        shownQuery = "\u0000fav"; shownCount = -1; shownFirst = null
+        status.text = if (favs.isEmpty()) "Chưa có bài yêu thích. Khi tìm kiếm, giữ phím OK trên bài hát để thêm vào đây."
+        else "❤ Yêu thích · ${favs.size} bài · OK: thêm vào danh sách phát · Giữ OK: xoá khỏi Yêu thích"
+        val cols = gridCols
+        var i = 0
+        while (i < favs.size) {
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            for (k in 0 until cols) {
+                val idx = i + k
+                if (idx < favs.size) {
+                    val cv = makeCard(favs[idx], idx)
+                    row.addView(cv, lin(cardW, -2, r = if (k < cols - 1) 14 else 0))
+                    cardViews.add(cv)
+                } else row.addView(View(this), lin(cardW, 1))
+            }
+            gridBox.addView(row, lin(-1, -2, b = 14))
+            i += cols
+        }
+        if (cardViews.isNotEmpty() && !fullscreen) {
+            val t = cardViews[focusIdx.coerceIn(0, cardViews.size - 1)]
+            t.post { t.requestFocus() }
+        } else if (cardViews.isEmpty()) favBtn.requestFocus()
     }
 
     private fun addHit(h: SearchHit, priority: Boolean) {
@@ -1152,6 +1281,7 @@ class MainActivity : Activity(), IframeHost {
 
     private fun tvSearch(q: String) {
         val c = core ?: return
+        leaveFavMode()
         searchJob?.cancel()
         c.controller.searchBegin(q, "tv")
         val kara = c.controller.karaoke.value
@@ -1343,11 +1473,28 @@ class MainActivity : Activity(), IframeHost {
         timeR.text = mmss(pg[1])
         bar.frac = if (pg[1] > 0) pg[0].toFloat() / pg[1] else 0f
 
-        // Tu phong to sau N giay (Cai dat) khong bam phim remote TV; N = 0 la tat
+    }
+
+    /**
+     * Tu phong to sau N giay (Cai dat) khong bam phim remote TV; N = 0 la tat.
+     * 5 giay cuoi hien so dem nguoc 5 -> 0 o giua video nho.
+     */
+    private fun autoFullscreenCheck(c: Core) {
         val fsSec = c.settings.fullscreenSec
-        if (fsSec > 0 && !fullscreen && lastUi.state == PState.PLAYING && dialogs == 0 && !searchEt.hasFocus() &&
-            SystemClock.elapsedRealtime() - lastControlAt >= fsSec * 1000L
-        ) enterFullscreen()
+        val eligible = fsSec > 0 && !fullscreen && lastUi.state == PState.PLAYING && dialogs == 0 && !searchEt.hasFocus()
+        if (!eligible) {
+            if (countdownTv.visibility != View.GONE) countdownTv.visibility = View.GONE
+            return
+        }
+        val remain = fsSec * 1000L - (SystemClock.elapsedRealtime() - lastControlAt)
+        if (remain < -300L) {
+            countdownTv.visibility = View.GONE
+            enterFullscreen()
+        } else if (remain <= 5000L) {
+            val n = maxOf(0L, (remain + 999L) / 1000L).toInt()
+            if (countdownTv.text.toString() != n.toString()) countdownTv.text = n.toString()
+            if (countdownTv.visibility != View.VISIBLE) countdownTv.visibility = View.VISIBLE
+        } else if (countdownTv.visibility != View.GONE) countdownTv.visibility = View.GONE
     }
 
     private fun updateNet() {
@@ -1446,6 +1593,10 @@ class MainActivity : Activity(), IframeHost {
     }
 
     private fun startVoice() {
+        // Chu dong tam dung video khi tim bang giong noi roi chac chan phat lai khi xong
+        val c = core
+        voiceWasPlaying = c != null && lastUi.state == PState.PLAYING
+        if (voiceWasPlaying) c?.controller?.pause()
         try {
             val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -1454,11 +1605,25 @@ class MainActivity : Activity(), IframeHost {
             startActivityForResult(i, REQ_VOICE)
         } catch (e: Exception) {
             toast("TV này chưa hỗ trợ tìm bằng giọng nói")
+            resumeAfterVoice()
+        }
+    }
+
+    /** Phat lai video sau giong noi: thu nhieu lan vi he thong co the con dang giu audio/man hinh. */
+    private fun resumeAfterVoice() {
+        if (!voiceWasPlaying) return
+        voiceWasPlaying = false
+        scope.launch {
+            for (d in longArrayOf(0, 400, 1200, 2500)) {
+                delay(d)
+                core?.controller?.forceResume()
+            }
         }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_VOICE) resumeAfterVoice()
         if (requestCode == REQ_VOICE && resultCode == RESULT_OK) {
             val t = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!t.isNullOrBlank()) {
@@ -1552,6 +1717,7 @@ class MainActivity : Activity(), IframeHost {
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         if (e.action == KeyEvent.ACTION_DOWN) {
             lastControlAt = SystemClock.elapsedRealtime()
+            if (countdownTv.visibility != View.GONE) countdownTv.visibility = View.GONE
             if (fullscreen) {
                 exitFullscreen()
                 if (!isMediaKey(e.keyCode)) return true
