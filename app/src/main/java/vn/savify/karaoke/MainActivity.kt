@@ -506,6 +506,28 @@ class MainActivity : Activity(), IframeHost {
 
         row.addView(spacer(), lin(0, 1, 1f))
 
+        // 2 nut tang/giam am luong, nam ngang hang ben trai bieu tuong wifi (bam OK tren remote TV hoac cham man hinh; giu de doi lien tuc)
+        for (up in booleanArrayOf(false, true)) {
+            val vb = FrameLayout(this)
+            vb.addView(IconView(this, if (up) "vup" else "vdown", Color.WHITE), FrameLayout.LayoutParams(p(28), p(28), Gravity.CENTER))
+            focusable(vb, box(PANEL, 24, 2, BORDER), box(0x22FFFFFF, 24, 3, CYAN))
+            vb.isClickable = true
+            val d = if (up) 5 else -5
+            vb.setOnClickListener { core?.controller?.changeVolume(d) }
+            vb.setOnLongClickListener {
+                val rep = object : Runnable {
+                    override fun run() {
+                        if (!vb.isPressed) return
+                        core?.controller?.changeVolume(d)
+                        vb.postDelayed(this, 150)
+                    }
+                }
+                vb.postDelayed(rep, 150)
+                true
+            }
+            row.addView(vb, lin(p(48), p(48), r = if (up) 18 else 10))
+        }
+
         val chip = LinearLayout(this)
         chip.orientation = LinearLayout.HORIZONTAL
         chip.gravity = Gravity.CENTER_VERTICAL

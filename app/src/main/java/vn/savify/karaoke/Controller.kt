@@ -158,6 +158,9 @@ class Controller(
     // Am luong = am luong he thong (STREAM_MUSIC) de phim VOL tren remote TV va remote dien thoai luon dong bo.
     private val audio = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private fun sysFixed(): Boolean = try { audio.isVolumeFixed } catch (e: Exception) { false }
+    // soft = am luong he thong khong doi duoc (TV/box bo qua setStreamVolume) -> app tu chinh am luong trong player.
+    private var soft = false
+    private fun useSoft(): Boolean = soft || sysFixed()
     private fun sysMax(): Int = try { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) } catch (e: Exception) { 15 }
     private fun sysUnits(): Int = try { audio.getStreamVolume(AudioManager.STREAM_MUSIC) } catch (e: Exception) { 0 }
     private fun sysPercent(): Int = (sysUnits() * 100f / sysMax()).roundToInt().coerceIn(0, 100)
@@ -466,7 +469,7 @@ class Controller(
 
     /** Neu he thong co am luong co dinh (mot so TV box HDMI) thi chinh am luong trong app; con lai de player 100% va dung am luong he thong. */
     private fun applyPlayerVolume() {
-        val fixed = sysFixed()
+        val fixed = useSoft()
         player.volume = if (fixed) volume / 100f else 1f
         iframeHost?.setVolume(if (fixed) volume else 100)
     }
@@ -480,13 +483,31 @@ class Controller(
         applyPlayerVolume()
     }
 
+    /** Doi am luong he thong; neu sau ~300ms he thong van khong doi (TV/box bo qua lenh) thi chuyen sang am luong trong app. */
+    private fun trySystemVolume(targetUnits: Int, intendedPct: Int) {
+        val before = sysUnits()
+        val t = targetUnits.coerceIn(0, sysMax())
+        setStreamUnits(t)
+        if (t != before) {
+            handler.postDelayed({
+                if (!soft && !sysFixed() && sysUnits() == before) {
+                    soft = true
+                    volume = intendedPct.coerceIn(0, 100)
+                    applyPlayerVolume()
+                    publish()
+                    volumeEvents.tryEmit(volume)
+                }
+            }, 300)
+        }
+    }
+
     fun setVolumeAbs(level: Int): Int {
         val v = level.coerceIn(0, 100)
-        if (sysFixed()) {
+        if (useSoft()) {
             volume = v
             applyPlayerVolume()
         } else {
-            setStreamUnits((v * sysMax() / 100f).roundToInt())
+            trySystemVolume((v * sysMax() / 100f).roundToInt(), v)
         }
         publish()
         volumeEvents.tryEmit(volume)
@@ -494,10 +515,11 @@ class Controller(
     }
 
     fun changeVolume(delta: Int): Int {
-        if (sysFixed() || delta == 0) return setVolumeAbs(volume + delta)
+        if (useSoft() || delta == 0) return setVolumeAbs(volume + delta)
         val max = sysMax()
         val step = (abs(delta) * max / 100f).roundToInt().coerceAtLeast(1)
-        setStreamUnits(sysUnits() + if (delta > 0) step else -step)
+        val target = (sysUnits() + if (delta > 0) step else -step).coerceIn(0, max)
+        trySystemVolume(target, (volume + delta).coerceIn(0, 100))
         publish()
         volumeEvents.tryEmit(volume)
         return volume
@@ -505,7 +527,7 @@ class Controller(
 
     /** Am luong he thong vua doi (phim VOL tren remote TV/box...) -> app, thanh am luong TV va remote dien thoai doi theo. */
     fun onSystemVolumeChanged() {
-        if (sysFixed()) return
+        if (useSoft()) return
         val p = sysPercent()
         if (p == volume) return
         volume = p
@@ -563,7 +585,7 @@ class Controller(
         val cur = current
         if (h != null && usingIframe && cur != null && state == PState.RESOLVING) {
             h.load(cur.videoId, cur.itemId, 0)
-            h.setVolume(if (sysFixed()) volume else 100)
+            h.setVolume(if (useSoft()) volume else 100)
         }
     }
 
@@ -930,7 +952,7 @@ class Controller(
         val h = iframeHost
         if (h != null) {
             h.load(item.videoId, item.itemId, (startPos / 1000).toInt())
-            h.setVolume(if (sysFixed()) volume else 100)
+            h.setVolume(if (useSoft()) volume else 100)
         }
         // if no host yet, attachIframeHost() will issue the load
         retryJob?.cancel()

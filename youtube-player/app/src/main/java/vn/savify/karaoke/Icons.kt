@@ -93,6 +93,14 @@ class IconView(ctx: Context, var kind: String, var color: Int = Color.WHITE) : V
                 c.drawLine(12f, 13f, 12f, 18f, line)
                 c.drawLine(7f, 18f, 17f, 18f, line)
             }
+            "vdown", "vup" -> {
+                c.drawRect(2.5f, 9f, 6.5f, 15f, fill)
+                val sp = Path()
+                sp.moveTo(6.5f, 9f); sp.lineTo(12f, 4.5f); sp.lineTo(12f, 19.5f); sp.lineTo(6.5f, 15f); sp.close()
+                c.drawPath(sp, fill)
+                c.drawLine(15f, 12f, 21.5f, 12f, line)
+                if (kind == "vup") c.drawLine(18.25f, 8.75f, 18.25f, 15.25f, line)
+            }
             "gear" -> {
                 c.drawCircle(12f, 12f, 4f, line)
                 for (i in 0 until 8) {
