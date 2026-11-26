@@ -259,6 +259,46 @@ class Controller(
         }
     }
 
+    // ---- Phim VOL cua remote vat ly (Bluetooth...) ----
+    // Nhieu android box xu ly phim VOL ngay trong he thong nen app khong nhan duoc KeyEvent.
+    // Dang ky 1 MediaSession "phat tu xa" co VolumeProvider: he thong se chuyen phim VOL +/- cho app,
+    // app doi am luong (he thong hoac trong player) va hien thanh am luong.
+    private var volSession: android.media.session.MediaSession? = null
+    private var volProvider: android.media.VolumeProvider? = null
+
+    private fun emitVolume() {
+        try { volProvider?.currentVolume = volume } catch (e: Exception) { }
+        volumeEvents.tryEmit(volume)
+    }
+
+    private fun startVolumeSession() {
+        try {
+            val prov = object : android.media.VolumeProvider(android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 100, volume) {
+                override fun onAdjustVolume(direction: Int) {
+                    handler.post {
+                        if (direction > 0) changeVolume(5) else if (direction < 0) changeVolume(-5)
+                    }
+                }
+
+                override fun onSetVolumeTo(v: Int) {
+                    handler.post { setVolumeAbs(v) }
+                }
+            }
+            val sess = android.media.session.MediaSession(app, "YoutubePlayerVolume")
+            sess.setPlaybackToRemote(prov)
+            sess.setPlaybackState(
+                android.media.session.PlaybackState.Builder()
+                    .setActions(0L)
+                    .setState(android.media.session.PlaybackState.STATE_PLAYING, 0L, 1f)
+                    .build()
+            )
+            sess.isActive = true
+            volProvider = prov
+            volSession = sess
+        } catch (e: Exception) {
+        }
+    }
+
     fun start() {
         restore()
         try {
@@ -268,12 +308,16 @@ class Controller(
         } catch (e: Exception) {
         }
         applyPlayerVolume()
+        startVolumeSession()
         handler.postDelayed(tickRunnable, 1000)
         startNext()
     }
 
     fun release() {
         try { app.unregisterReceiver(volReceiver) } catch (e: Exception) { }
+        try { volSession?.release() } catch (e: Exception) { }
+        volSession = null
+        volProvider = null
         handler.removeCallbacksAndMessages(null)
         resolveJob?.cancel()
         retryJob?.cancel()
@@ -495,7 +539,7 @@ class Controller(
                     volume = intendedPct.coerceIn(0, 100)
                     applyPlayerVolume()
                     publish()
-                    volumeEvents.tryEmit(volume)
+                    emitVolume()
                 }
             }, 300)
         }
@@ -510,7 +554,7 @@ class Controller(
             trySystemVolume((v * sysMax() / 100f).roundToInt(), v)
         }
         publish()
-        volumeEvents.tryEmit(volume)
+        emitVolume()
         return volume
     }
 
@@ -521,7 +565,7 @@ class Controller(
         val target = (sysUnits() + if (delta > 0) step else -step).coerceIn(0, max)
         trySystemVolume(target, (volume + delta).coerceIn(0, 100))
         publish()
-        volumeEvents.tryEmit(volume)
+        emitVolume()
         return volume
     }
 
@@ -533,7 +577,7 @@ class Controller(
         volume = p
         applyPlayerVolume()
         publish()
-        volumeEvents.tryEmit(volume)
+        emitVolume()
     }
 
     /** Tua: positionMs = vi tri tuyet doi, hoac deltaMs = tua tuong doi (am = lui). */
