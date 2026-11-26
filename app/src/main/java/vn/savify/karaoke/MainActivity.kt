@@ -143,6 +143,8 @@ class MainActivity : Activity(), IframeHost {
     private var web: WebView? = null
     private var webFailed = false
     private var pageReady = false
+    /** Tu khoa tim kiem truoc khi mo mot playlist (bam BACK de quay lai). */
+    private var plReturn: String? = null
     private var pendingJs: String? = null
     private var surfaceAttached = false
     private var inSession = false
@@ -1048,16 +1050,18 @@ class MainActivity : Activity(), IframeHost {
             if (sv.query == favSearchQuery) return
             leaveFavMode()
         }
+        val dq = SearchService.displayQuery(sv.query)
+        val isPlQ = sv.query.startsWith("pl:")
         status.text = when {
-            sv.loading && sv.results.isEmpty() -> "Đang tìm “${sv.query}”…"
+            sv.loading && sv.results.isEmpty() -> if (isPlQ) "Đang mở danh sách phát…" else "Đang tìm “$dq”…"
             sv.error != null && sv.results.isEmpty() -> "Không tìm được: ${sv.error}"
             sv.query.isEmpty() -> "Chọn thể loại bên trái hoặc gõ tên bài hát để tìm"
-            sv.results.isEmpty() -> "Không có kết quả cho “${sv.query}”"
-            else -> "Kết quả cho “${sv.query}”" +
+            sv.results.isEmpty() -> "Không có kết quả cho “$dq”"
+            else -> (if (isPlQ) "Danh sách phát “$dq” · BACK để quay lại" else "Kết quả cho “$dq”") +
                 (if (sv.source == "remote") " · từ điện thoại" else "") +
                 (if (sv.loading) " · đang tải thêm…" else "")
         }
-        if (!searchEt.hasFocus() && sv.query != searchEt.text.toString()) searchEt.setText(sv.query)
+        if (!searchEt.hasFocus() && dq != searchEt.text.toString()) searchEt.setText(dq)
         if (sv.source == "remote") syncCatToQuery(sv.query)
 
         val res = sv.results
@@ -1120,8 +1124,9 @@ class MainActivity : Activity(), IframeHost {
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
         iv.setBackgroundColor(0xFF1B1B26.toInt())
         th.addView(iv, FrameLayout.LayoutParams(-1, -1))
-        if (h.durationSec > 0) {
-            val d = lbl(mmss(h.durationSec * 1000L), 16, Color.WHITE, true)
+        val isPl = h.kind == "playlist"
+        if (h.durationSec > 0 || isPl) {
+            val d = lbl(if (isPl) (if (h.count > 0) "☰ ${h.count} video" else "☰ Playlist") else mmss(h.durationSec * 1000L), 16, Color.WHITE, true)
             d.background = box(0xCC000000.toInt(), 6)
             d.setPadding(p(8), p(2), p(8), p(2))
             val dl = FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END)
@@ -1130,10 +1135,18 @@ class MainActivity : Activity(), IframeHost {
         }
         val hv = IconView(this, "heart", PINK)
         hv.tag = "heart"
-        hv.visibility = if (isFav(h.videoId)) View.VISIBLE else View.GONE
+        hv.visibility = if (!isPl && isFav(h.videoId)) View.VISIBLE else View.GONE
         val hlp = FrameLayout.LayoutParams(p(30), p(30), Gravity.TOP or Gravity.START)
         hlp.setMargins(p(8), p(8), 0, 0)
         th.addView(hv, hlp)
+        if (isPl) {
+            val tagPl = lbl("DANH SÁCH PHÁT", 15, Color.WHITE, true)
+            tagPl.background = box(0xCCC62828.toInt(), 6)
+            tagPl.setPadding(p(8), p(2), p(8), p(2))
+            val tlp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START)
+            tlp.setMargins(p(8), p(8), 0, 0)
+            th.addView(tagPl, tlp)
+        }
         c.addView(th, LinearLayout.LayoutParams(tw, tw * 9 / 16))
         if (horiz) {
             // 1 bai/hang: thumbnail ben trai, chu ben phai (khong keo thumbnail qua to)
@@ -1148,10 +1161,10 @@ class MainActivity : Activity(), IframeHost {
             c.addView(lbl(h.channel, 18, MUTED, false, 1), lin(-1, -2, t = 2))
         }
         c.tag = CardTag(h, idx)
-        Img.load(iv, Util.thumb(h.videoId))
-        c.setOnClickListener { addHit(h, false) }
+        Img.load(iv, if (h.thumb.isNotEmpty()) h.thumb else Util.thumb(h.videoId))
+        c.setOnClickListener { if (isPl) openPlaylist(h) else addHit(h, false) }
         // Nhan 1 lan OK = them vao danh sach phat; giu OK = them vao Yeu thich (trong muc Yeu thich: giu OK = xoa)
-        c.setOnLongClickListener { if (favMode) removeFav(h) else addFav(h); true }
+        c.setOnLongClickListener { if (isPl) addPlaylist(h) else if (favMode) removeFav(h) else addFav(h); true }
         c.setOnFocusChangeListener { _, f ->
             if (f) {
                 val total = core?.controller?.search?.value?.results?.size ?: 0
@@ -1335,6 +1348,31 @@ class MainActivity : Activity(), IframeHost {
                 throw e
             } catch (e: Throwable) {
                 c.controller.searchFail(q, s.source, (e.message ?: "lỗi mạng").take(100))
+            }
+        }
+    }
+
+    /** OK tren mot playlist: mo danh sach video cua playlist (cuon het thi tu tai them, nhu YouTube). */
+    private fun openPlaylist(h: SearchHit) {
+        val c = core ?: return
+        val cur = c.controller.search.value.query
+        if (!cur.startsWith("pl:")) plReturn = cur.takeIf { it.isNotEmpty() }
+        tvSearch("pl:" + h.videoId)
+    }
+
+    /** Giu OK / MENU tren mot playlist: them toan bo video (toi da 100) vao hang doi. */
+    private fun addPlaylist(h: SearchHit) {
+        val c = core ?: return
+        toast("Đang thêm danh sách phát…")
+        scope.launch {
+            try {
+                val hits = withContext(Dispatchers.IO) { SearchService.playlistVideos(h.videoId, 100) }
+                val n = c.controller.addMany(hits, "TV")
+                toast(if (n > 0) "Đã thêm $n bài vào hàng đợi" else "Không thêm được bài nào (đã có trong hàng đợi?)")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                toast("Không mở được danh sách phát")
             }
         }
     }
@@ -1727,6 +1765,14 @@ class MainActivity : Activity(), IframeHost {
     }
 
     override fun onBackPressed() {
+        // Dang xem ben trong mot playlist -> BACK quay lai ket qua tim kiem truoc do
+        val q = core?.controller?.search?.value?.query ?: ""
+        val back = plReturn
+        if (q.startsWith("pl:") && back != null) {
+            plReturn = null
+            tvSearch(back)
+            return
+        }
         confirmExit()
     }
 
@@ -1737,6 +1783,16 @@ class MainActivity : Activity(), IframeHost {
 
     /** Moi phim bam tren remote TV = "co dieu khien": tinh lai 5 giay, dang toan man hinh thi thu nho ngay. */
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        // Phim VOL +/- tren remote TV: doi am luong app (= am luong he thong), hien thanh am luong, khong thu nho man hinh.
+        if (e.keyCode == KeyEvent.KEYCODE_VOLUME_UP || e.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val c = core
+            if (c != null) {
+                if (e.action == KeyEvent.ACTION_DOWN) {
+                    c.controller.changeVolume(if (e.keyCode == KeyEvent.KEYCODE_VOLUME_UP) 5 else -5)
+                }
+                return true
+            }
+        }
         if (e.action == KeyEvent.ACTION_DOWN) {
             lastControlAt = SystemClock.elapsedRealtime()
             if (countdownTv.visibility != View.GONE) countdownTv.visibility = View.GONE
@@ -1762,7 +1818,7 @@ class MainActivity : Activity(), IframeHost {
         }
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             when (val tag = currentFocus?.tag) {
-                is CardTag -> addHit(tag.hit, true)
+                is CardTag -> if (tag.hit.kind == "playlist") addPlaylist(tag.hit) else addHit(tag.hit, true)
                 is QueueTag -> removeQueueItem(tag.item)
                 else -> showSettings()
             }

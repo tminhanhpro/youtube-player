@@ -289,6 +289,20 @@ class KaraokeServer(
                 return reply()
             }
 
+            method == Method.POST && p0 == "playlist" && p1 == "add" -> {
+                val b = body(s)
+                val id = b.optString("id", "").trim()
+                if (!Regex("^[A-Za-z0-9_-]{2,64}$").matches(id)) throw ApiError(400, "INVALID_URL", "Bad playlist id")
+                val hits = try {
+                    SearchService.playlistVideos(id, 100)
+                } catch (e: Throwable) {
+                    throw ApiError(502, "UPSTREAM_FAILED", "Playlist failed: " + (e.message ?: e.javaClass.simpleName).take(160))
+                }
+                val by = b.optString("addedBy", "").trim().ifEmpty { null }
+                val n = ctl.onMain { ctl.noteActor(dev); ctl.addMany(hits, by) }
+                return json(JSONObject().put("added", n).put("total", hits.size).put("state", snapshot()))
+            }
+
             method == Method.POST && p0 == "player" -> {
                 val b = body(s)
                 var vol: Int? = null
@@ -487,7 +501,7 @@ class KaraokeServer(
     private fun search(s: IHTTPSession): Response {
         val q = (s.parms["q"] ?: "").trim()
         if (q.isEmpty() || q.length > 200) throw ApiError(400, "INVALID_QUERY", "Query must be 1-200 chars")
-        val page = (s.parms["page"] ?: "0").toIntOrNull()?.coerceIn(0, 20) ?: 0
+        val page = (s.parms["page"] ?: "0").toIntOrNull()?.coerceIn(0, 100000) ?: 0
         val karaoke = (s.parms["karaoke"] ?: "0") != "0"
         val chan = (s.parms["channel"] ?: "").trim().take(100)
         if (page == 0) ctl.searchBegin(q, "remote") else ctl.searchLoadingMore()
@@ -504,11 +518,13 @@ class KaraokeServer(
         for (h in res.first) {
             arr.put(
                 JSONObject().put("videoId", h.videoId).put("title", h.title).put("channel", h.channel)
-                    .put("thumbnailUrl", Util.thumb(h.videoId)).put("durationSec", h.durationSec)
+                    .put("thumbnailUrl", if (h.thumb.isNotEmpty()) h.thumb else Util.thumb(h.videoId)).put("durationSec", h.durationSec)
+                    .put("kind", h.kind).put("count", h.count)
                     .put("alreadyQueued", queued.contains(h.videoId))
             )
         }
-        return json(JSONObject().put("results", arr).put("page", page).put("hasMore", res.second))
+        return json(JSONObject().put("results", arr).put("page", page).put("hasMore", res.second)
+            .put("title", SearchService.displayQuery(q)))
     }
 
     companion object {

@@ -41,6 +41,14 @@ Lệnh từ điện thoại (thêm bài, âm lượng, thả tim, tin nhắn…)
 - **Điện thoại**: ô tích **Chế độ karaoke** nằm trong menu ☰ và trong bảng nguồn/thể loại của remote.
 - **Đồng bộ**: bật/tắt ở bên nào thì bên kia đổi theo (điện thoại cập nhật qua trạng thái TV mỗi giây; điện thoại đổi thì gọi `POST /api/karaoke {"on": true|false}`).
 
+## Tìm kiếm giống YouTube
+- Kết quả gồm **video (cả MV) và danh sách phát (playlist)**, thứ tự theo YouTube; cuộn/di chuyển tới cuối là **tự tải tiếp, không giới hạn** (cả trên TV lẫn remote điện thoại).
+- Playlist có nhãn **DANH SÁCH PHÁT** và số video. **OK** trên playlist = mở xem các video bên trong (cũng cuộn tải thêm không giới hạn), **BACK** để quay lại kết quả trước. **Giữ OK** hoặc **MENU** trên playlist = thêm tối đa 100 video của playlist vào hàng đợi.
+- Điện thoại: bấm một playlist để mở, nút **+** của playlist = thêm cả danh sách vào hàng đợi.
+
+## Âm lượng
+Âm lượng của app chính là âm lượng hệ thống của TV/box: phím VOL+/VOL− trên remote TV và nút +/− hoặc thanh trượt trên điện thoại luôn đồng bộ với nhau.
+
 ## Ghi chú kỹ thuật
 - `applicationId` = `vn.savify.youtubeplayer` (cài song song được với app Savify Karaoke cũ).
 - Danh sách bài tự phát khi hàng đợi trống: `app/src/main/assets/seed.json`.

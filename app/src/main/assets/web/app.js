@@ -9,7 +9,7 @@
       add: 'Add', added: 'Added: ', in_queue: 'In queue', play_next: 'Play next', play_now: 'Play now',
       prioritize: 'Move to top', remove: 'Remove', move_up: 'Move up', move_down: 'Move down', close: 'Close',
       now_playing: 'Now playing', next: 'Next: ', nothing: 'Nothing is waiting. The TV plays suggested songs.',
-      no_results: 'No results', recent: 'Recent searches', loading: 'Loading…',
+      no_results: 'No results', playlist: 'Playlist', pl_open: 'Open playlist', pl_add_all: 'Add whole playlist', pl_added: 'Added from playlist: ', recent: 'Recent searches', loading: 'Loading…',
       paste_title: 'Add a YouTube link', paste_ph: 'Paste YouTube link or video ID', title_opt: 'Song title (optional)',
       cancel: 'Cancel', menu: 'Settings', language: 'Language', device: 'Your device name',
       karaoke_mode: 'Karaoke mode (append "karaoke" to searches)', reset_pairing: 'Reset pairing',
@@ -44,7 +44,7 @@
       add: 'Thêm', added: 'Đã thêm: ', in_queue: 'Đã chọn', play_next: 'Phát tiếp theo', play_now: 'Phát ngay',
       prioritize: 'Đưa lên đầu', remove: 'Xóa', move_up: 'Lên', move_down: 'Xuống', close: 'Đóng',
       now_playing: 'Đang phát', next: 'Tiếp theo: ', nothing: 'Chưa có bài nào chờ. TV đang phát bài gợi ý.',
-      no_results: 'Không có kết quả', recent: 'Tìm gần đây', loading: 'Đang tải…',
+      no_results: 'Không có kết quả', playlist: 'Danh sách phát', pl_open: 'Mở danh sách phát', pl_add_all: 'Thêm cả danh sách phát', pl_added: 'Đã thêm từ danh sách phát: ', recent: 'Tìm gần đây', loading: 'Đang tải…',
       paste_title: 'Thêm link YouTube', paste_ph: 'Dán link YouTube hoặc mã video', title_opt: 'Tên bài (không bắt buộc)',
       cancel: 'Hủy', menu: 'Cài đặt', language: 'Ngôn ngữ', device: 'Tên điện thoại của bạn',
       karaoke_mode: 'Chế độ karaoke (tự thêm chữ "karaoke" khi tìm)', reset_pairing: 'Đặt lại ghép nối',
@@ -222,7 +222,7 @@
     if (sameQuery) {                                     // TV tai them -> chi them phan moi, giu vi tri cuon
       for (var i = results.length; i < ts.results.length; i++) { results.push(ts.results[i]); appendResult(ts.results[i]); }
     } else {
-      inp.value = ts.query; $('q-clear').hidden = !ts.query;
+      inp.value = ts.title || ts.query; $('q-clear').hidden = !ts.query;
       results = ts.results.slice(); curQuery = ts.query; curRaw = ts.query;
       $('results').textContent = '';
       results.forEach(appendResult);
@@ -367,7 +367,8 @@
     });
     img.src = it.thumbnailUrl;
     box.appendChild(img);
-    if (it.durationSec > 0) box.appendChild(el('span', 'dur', fmt(it.durationSec)));
+    if (it.kind === 'playlist') box.appendChild(el('span', 'dur', '☰ ' + (it.count > 0 ? it.count : 'Playlist')));
+    else if (it.durationSec > 0) box.appendChild(el('span', 'dur', fmt(it.durationSec)));
     return box;
   }
 
@@ -798,15 +799,16 @@
 
   function doSearch(q, reset) {
     q = q.trim();
-    if (q && reset && ytLink(q)) { showLinkCard(q); return; }
-    var eq = effQuery(q);
+    var isPl = q.indexOf('pl:') === 0;
+    if (q && reset && !isPl && ytLink(q)) { showLinkCard(q); return; }
+    var eq = isPl ? q : effQuery(q);
     if (!eq) { ++reqId; results = []; curQuery = ''; curRaw = ''; hasMore = false; loading = false; $('results').textContent = ''; $('results-status').textContent = ''; renderRecent(); return; }
-    if (reset) { page = 0; results = []; hasMore = false; curQuery = eq; curRaw = q; $('results').textContent = ''; if (q) pushRecentLater(q); }
+    if (reset) { page = 0; results = []; hasMore = false; curQuery = eq; curRaw = q; $('results').textContent = ''; if (q && !isPl) pushRecentLater(q); }
     var my = ++reqId;
     loading = true;
     $('results-status').textContent = '';
     var sk = el('li', 'skeleton'); sk.id = 'sk'; $('results').appendChild(sk);
-    api('GET', '/api/search?q=' + encodeURIComponent(eq) + '&page=' + page + '&karaoke=' + (karaoke ? 1 : 0) + ((searchMode === 'channel' && q) ? '&channel=' + encodeURIComponent(q) : ''))
+    api('GET', '/api/search?q=' + encodeURIComponent(eq) + '&page=' + page + '&karaoke=' + (karaoke ? 1 : 0) + ((searchMode === 'channel' && q && !isPl) ? '&channel=' + encodeURIComponent(q) : ''))
       .then(function (r) {
         if (my !== reqId) return;
         removeSk();
@@ -825,7 +827,43 @@
   function pushRecentLater(q) { clearTimeout(recentTimer); recentTimer = setTimeout(function () { if (q === curRaw) pushRecent(q); }, 1500); }
   function removeSk() { var s = $('sk'); if (s) s.remove(); }
 
+  // playlist trong ket qua tim kiem: bam de mo (xem video ben trong, cuon het tu tai them), nut + de them ca danh sach
+  function playlistRow(it) {
+    var li = el('li', 'row-item'); li.dataset.vid = it.videoId; li.dataset.pl = '1';
+    li.appendChild(thumbBox(it));
+    var col = el('div', 'info-col');
+    col.appendChild(el('div', 'title', it.title));
+    col.appendChild(el('div', 'sub', '☰ ' + t('playlist') + (it.channel ? ' · ' + it.channel : '')));
+    li.appendChild(col);
+    var plus = el('button', 'act plus', '+'); plus.setAttribute('aria-label', t('pl_add_all'));
+    plus.addEventListener('click', function (ev) { ev.stopPropagation(); addPlaylist(it); });
+    li.appendChild(actsBox([plus]));
+    li.addEventListener('click', function () { openPlaylist(it); });
+    li.addEventListener('contextmenu', function (ev) {
+      ev.preventDefault();
+      openMenu(it.title, [
+        { label: t('pl_open'), run: function () { openPlaylist(it); } },
+        { label: t('pl_add_all'), run: function () { addPlaylist(it); } }
+      ]);
+    });
+    return li;
+  }
+  function openPlaylist(it) {
+    $('q').value = it.title; $('q-clear').hidden = false;
+    doSearch('pl:' + it.videoId, true);
+    try { $('view-search').parentNode.scrollTop = 0; } catch (e) {}
+  }
+  function addPlaylist(it) {
+    toast(t('loading'));
+    api('POST', '/api/playlist/add', { id: it.videoId, addedBy: device }).then(function (r) {
+      if (r.state) applyState(r.state);
+      if (r.added > 0) toast(t('pl_added') + r.added, null, null, 'ok'); else toast(t('err_generic'));
+      refreshResultBadges();
+    }).catch(function (e) { toast(errText(e)); });
+  }
+
   function songRow(it, inFavs) {
+    if (it.kind === 'playlist') return playlistRow(it);
     var li = el('li', 'row-item'); li.dataset.vid = it.videoId;
     li.appendChild(thumbBox(it));
     var col = el('div', 'info-col');
@@ -855,7 +893,7 @@
   function refreshResultBadges() {
     var set = inQueueSet();
     var items = document.querySelectorAll('#results li.row-item, #fav-list li.row-item');
-    for (var i = 0; i < items.length; i++) markBadge(items[i], !!set[items[i].dataset.vid]);
+    for (var i = 0; i < items.length; i++) { if (items[i].dataset.pl) continue; markBadge(items[i], !!set[items[i].dataset.vid]); }
   }
 
   function onInput(immediate) {

@@ -1,6 +1,10 @@
 package vn.savify.karaoke
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
@@ -28,6 +32,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Callable
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -123,7 +129,7 @@ class Controller(
             val list = if (page > 0 && o.query == q) {
                 o.results + hits.filter { h -> o.results.none { it.videoId == h.videoId } }
             } else hits
-            search.value = SearchState(o.version + 1, q, source, list.take(120), hasMore, page, false, null)
+            search.value = SearchState(o.version + 1, q, source, list.take(5000), hasMore, page, false, null)
         }
     }
 
@@ -149,7 +155,13 @@ class Controller(
     private var current: QueueItem? = null
     private var state = PState.IDLE
     private var queueVersion = 0
-    private var volume = 100
+    // Am luong = am luong he thong (STREAM_MUSIC) de phim VOL tren remote TV va remote dien thoai luon dong bo.
+    private val audio = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private fun sysFixed(): Boolean = try { audio.isVolumeFixed } catch (e: Exception) { false }
+    private fun sysMax(): Int = try { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) } catch (e: Exception) { 15 }
+    private fun sysUnits(): Int = try { audio.getStreamVolume(AudioManager.STREAM_MUSIC) } catch (e: Exception) { 0 }
+    private fun sysPercent(): Int = (sysUnits() * 100f / sysMax()).roundToInt().coerceIn(0, 100)
+    private var volume = if (sysFixed()) 100 else sysPercent()
     private var seq = 0
 
     private var sources: List<Src> = emptyList()
@@ -212,6 +224,7 @@ class Controller(
     private val tickRunnable = object : Runnable {
         override fun run() {
             try {
+                onSystemVolumeChanged()
                 tick()
             } catch (e: Exception) {
                 // never let the watchdog die
@@ -237,13 +250,27 @@ class Controller(
         })
     }
 
+    private val volReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            handler.post { onSystemVolumeChanged() }
+        }
+    }
+
     fun start() {
         restore()
+        try {
+            val f = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+            if (android.os.Build.VERSION.SDK_INT >= 33) app.registerReceiver(volReceiver, f, Context.RECEIVER_EXPORTED)
+            else app.registerReceiver(volReceiver, f)
+        } catch (e: Exception) {
+        }
+        applyPlayerVolume()
         handler.postDelayed(tickRunnable, 1000)
         startNext()
     }
 
     fun release() {
+        try { app.unregisterReceiver(volReceiver) } catch (e: Exception) { }
         handler.removeCallbacksAndMessages(null)
         resolveJob?.cancel()
         retryJob?.cancel()
@@ -288,6 +315,21 @@ class Controller(
         } catch (e: ApiError) {
             if (e.code == "QUEUE_FULL") 3 else 2
         }
+    }
+
+    /** Them nhieu bai (vd ca playlist) vao cuoi hang doi; dung khi day. Tra ve so bai da them. */
+    fun addMany(hits: List<SearchHit>, addedBy: String?): Int {
+        var n = 0
+        for (h in hits) {
+            if (h.kind != "video") continue
+            try {
+                add(h.videoId, h.title, h.channel, h.durationSec, addedBy, "end", false)
+                n++
+            } catch (e: ApiError) {
+                if (e.code == "QUEUE_FULL") break
+            }
+        }
+        return n
     }
 
     fun noteActor(by: String?) {
@@ -422,13 +464,54 @@ class Controller(
         prefetchHead()
     }
 
+    /** Neu he thong co am luong co dinh (mot so TV box HDMI) thi chinh am luong trong app; con lai de player 100% va dung am luong he thong. */
+    private fun applyPlayerVolume() {
+        val fixed = sysFixed()
+        player.volume = if (fixed) volume / 100f else 1f
+        iframeHost?.setVolume(if (fixed) volume else 100)
+    }
+
+    private fun setStreamUnits(units: Int) {
+        try {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, units.coerceIn(0, sysMax()), 0)
+        } catch (e: Exception) {
+        }
+        volume = sysPercent()
+        applyPlayerVolume()
+    }
+
     fun setVolumeAbs(level: Int): Int {
-        volume = level.coerceIn(0, 100)
-        player.volume = volume / 100f
-        iframeHost?.setVolume(volume)
+        val v = level.coerceIn(0, 100)
+        if (sysFixed()) {
+            volume = v
+            applyPlayerVolume()
+        } else {
+            setStreamUnits((v * sysMax() / 100f).roundToInt())
+        }
         publish()
         volumeEvents.tryEmit(volume)
         return volume
+    }
+
+    fun changeVolume(delta: Int): Int {
+        if (sysFixed() || delta == 0) return setVolumeAbs(volume + delta)
+        val max = sysMax()
+        val step = (abs(delta) * max / 100f).roundToInt().coerceAtLeast(1)
+        setStreamUnits(sysUnits() + if (delta > 0) step else -step)
+        publish()
+        volumeEvents.tryEmit(volume)
+        return volume
+    }
+
+    /** Am luong he thong vua doi (phim VOL tren remote TV/box...) -> app, thanh am luong TV va remote dien thoai doi theo. */
+    fun onSystemVolumeChanged() {
+        if (sysFixed()) return
+        val p = sysPercent()
+        if (p == volume) return
+        volume = p
+        applyPlayerVolume()
+        publish()
+        volumeEvents.tryEmit(volume)
     }
 
     /** Tua: positionMs = vi tri tuyet doi, hoac deltaMs = tua tuong doi (am = lui). */
@@ -442,8 +525,6 @@ class Controller(
         if (usingIframe) iframeHost?.seek(target) else player.seekTo(target)
         lastPosChangeAt = System.currentTimeMillis()
     }
-
-    fun changeVolume(delta: Int): Int = setVolumeAbs(volume + delta)
 
     // TV lifecycle ------------------------------------------------------
 
@@ -482,7 +563,7 @@ class Controller(
         val cur = current
         if (h != null && usingIframe && cur != null && state == PState.RESOLVING) {
             h.load(cur.videoId, cur.itemId, 0)
-            h.setVolume(volume)
+            h.setVolume(if (sysFixed()) volume else 100)
         }
     }
 
@@ -738,7 +819,7 @@ class Controller(
             pf.createMediaSource(MediaItem.fromUri(s.video))
         }
         usingIframe = false
-        player.volume = volume / 100f
+        applyPlayerVolume()
         player.setMediaSource(src, startPos)
         player.prepare()
         player.playWhenReady = !(userPaused || autoPaused)
@@ -849,7 +930,7 @@ class Controller(
         val h = iframeHost
         if (h != null) {
             h.load(item.videoId, item.itemId, (startPos / 1000).toInt())
-            h.setVolume(volume)
+            h.setVolume(if (sysFixed()) volume else 100)
         }
         // if no host yet, attachIframeHost() will issue the load
         retryJob?.cancel()
@@ -986,14 +1067,16 @@ class Controller(
         val sv = search.value
         val o = JSONObject().put("version", sv.version).put("source", sv.source).put("query", sv.query)
             .put("loading", sv.loading).put("page", sv.page).put("hasMore", sv.hasMore)
+            .put("title", SearchService.displayQuery(sv.query))
         if (sv.source == "tv" && !sv.loading) {
             val arr = JSONArray()
             val queued = HashSet<String>()
             queue.forEach { queued.add(it.videoId) }
-            sv.results.take(60).forEach { h ->
+            sv.results.take(400).forEach { h ->
                 arr.put(
                     JSONObject().put("videoId", h.videoId).put("title", h.title).put("channel", h.channel)
-                        .put("thumbnailUrl", Util.thumb(h.videoId)).put("durationSec", h.durationSec)
+                        .put("thumbnailUrl", if (h.thumb.isNotEmpty()) h.thumb else Util.thumb(h.videoId)).put("durationSec", h.durationSec)
+                        .put("kind", h.kind).put("count", h.count)
                         .put("alreadyQueued", queued.contains(h.videoId))
                 )
             }

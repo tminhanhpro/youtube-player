@@ -15,6 +15,7 @@ import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchExtractor
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -63,7 +64,6 @@ object YtScrape {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
-    private val cache = ConcurrentHashMap<String, Pair<Long, List<SearchHit>>>()
 
     private fun get(url: String): String {
         val rq = OkRequest.Builder().url(url)
@@ -84,37 +84,76 @@ object YtScrape {
         return total
     }
 
-    private fun walk(o: Any?, out: ArrayList<SearchHit>, seen: HashSet<String>) {
-        if (out.size >= 30) return
+    private fun textOf(o: org.json.JSONObject?): String {
+        if (o == null) return ""
+        val simple = o.optString("simpleText")
+        if (simple.isNotEmpty()) return simple
+        return o.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
+    }
+
+    /** Duyet JSON cua YouTube, gom video + playlist (giong trang tim kiem) va the "tai tiep" (continuation). */
+    private fun walk(o: Any?, out: ArrayList<SearchHit>, seen: HashSet<String>, tok: Array<String?>) {
         when (o) {
             is org.json.JSONObject -> {
-                val it = o.keys()
-                while (it.hasNext()) {
-                    val k = it.next()
+                val keys = o.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
                     val v = o.opt(k)
                     if (k == "videoRenderer" && v is org.json.JSONObject) {
                         val id = v.optString("videoId")
                         val dur = parseDur(v.optJSONObject("lengthText")?.optString("simpleText"))
                         if (Util.ID_RE.matches(id) && dur > 60 && seen.add(id)) {
-                            val title = v.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
-                            val ch = v.optJSONObject("ownerText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
-                            out.add(SearchHit(id, title, ch, dur))
+                            out.add(SearchHit(id, textOf(v.optJSONObject("title")), textOf(v.optJSONObject("ownerText")), dur))
                         }
-                    } else walk(v, out, seen)
+                    } else if (k == "playlistRenderer" && v is org.json.JSONObject) {
+                        val id = v.optString("playlistId")
+                        if (id.isNotEmpty() && !id.startsWith("RD") && seen.add(id)) {
+                            val cnt = v.optString("videoCount").filter { c -> c.isDigit() }.toIntOrNull() ?: 0
+                            var th = v.optJSONArray("thumbnails")?.optJSONObject(0)?.optJSONArray("thumbnails")?.let { a ->
+                                a.optJSONObject(a.length() - 1)?.optString("url")
+                            } ?: ""
+                            if (th.startsWith("//")) th = "https:$th"
+                            out.add(SearchHit(id, textOf(v.optJSONObject("title")), textOf(v.optJSONObject("shortBylineText")), 0, "playlist", th, cnt))
+                        }
+                    } else if (k == "lockupViewModel" && v is org.json.JSONObject) {
+                        if (v.optString("contentType") == "LOCKUP_CONTENT_TYPE_PLAYLIST") {
+                            val id = v.optString("contentId")
+                            val title = v.optJSONObject("metadata")?.optJSONObject("lockupMetadataViewModel")
+                                ?.optJSONObject("title")?.optString("content") ?: ""
+                            if (id.isNotEmpty() && !id.startsWith("RD") && title.isNotEmpty() && seen.add(id)) {
+                                out.add(SearchHit(id, title, "", 0, "playlist", "", 0))
+                            }
+                        }
+                    } else if (k == "continuationItemRenderer" && v is org.json.JSONObject) {
+                        val t = v.optJSONObject("continuationEndpoint")?.optJSONObject("continuationCommand")?.optString("token")
+                        if (!t.isNullOrEmpty() && tok[0] == null) tok[0] = t
+                    } else walk(v, out, seen, tok)
                 }
             }
-            is org.json.JSONArray -> for (i in 0 until o.length()) walk(o.opt(i), out, seen)
+            is org.json.JSONArray -> for (i in 0 until o.length()) walk(o.opt(i), out, seen, tok)
         }
     }
 
-    /** Tim bang API noi bo cua YouTube (InnerTube) - on dinh hon viec doc HTML. */
-    private fun innertube(q: String): List<SearchHit> {
+    private class FSess {
+        val created = System.currentTimeMillis()
+        val seen = HashSet<String>()
+        val pages = ArrayList<List<SearchHit>>()
+        var started = false
+        var done = false
+        var next: String? = null
+    }
+
+    private val sessions = object : LinkedHashMap<String, FSess>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FSess>?): Boolean = size > 20
+    }
+
+    /** Tim bang API noi bo cua YouTube (InnerTube): trang dau (token = null) hoac trang tiep theo (continuation). Khong loc: video + playlist nhu YouTube. */
+    private fun innertubePage(q: String, token: String?, seen: HashSet<String>): Pair<List<SearchHit>, String?> {
         val ver = "2.20260105.01.00"
         val body = org.json.JSONObject()
             .put("context", org.json.JSONObject().put("client", org.json.JSONObject()
                 .put("clientName", "WEB").put("clientVersion", ver).put("hl", "vi").put("gl", "VN")))
-            .put("query", q)
-            .put("params", "EgIQAQ==")
+        if (token == null) body.put("query", q) else body.put("continuation", token)
         val rq = OkRequest.Builder().url("https://www.youtube.com/youtubei/v1/search?prettyPrint=false")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -127,15 +166,15 @@ object YtScrape {
             if (!r.isSuccessful) throw java.io.IOException("HTTP " + r.code)
             val root = org.json.JSONObject(r.body?.string() ?: throw java.io.IOException("empty body"))
             val out = ArrayList<SearchHit>()
-            walk(root, out, HashSet())
-            return out
+            val tok = arrayOfNulls<String>(1)
+            walk(root, out, seen, tok)
+            return Pair(out, tok[0])
         }
     }
 
-    /** Doc trang ket qua HTML (phuong an cuoi cung). */
-    private fun htmlSearch(q: String): List<SearchHit> {
-        val url = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(q, "UTF-8") +
-            "&sp=EgIQAQ%3D%3D&hl=vi&gl=VN"
+    /** Doc trang ket qua HTML (phuong an cuoi cung, chi co trang dau). */
+    private fun htmlSearch(q: String, seen: HashSet<String>): Pair<List<SearchHit>, String?> {
+        val url = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(q, "UTF-8") + "&hl=vi&gl=VN"
         val html = get(url)
         var key = "ytInitialData = "
         var i = html.indexOf(key)
@@ -148,21 +187,42 @@ object YtScrape {
         val end = html.indexOf(";</script>", start).takeIf { it > 0 } ?: throw java.io.IOException("bad page")
         val root = org.json.JSONObject(html.substring(start, end))
         val out = ArrayList<SearchHit>()
-        walk(root, out, HashSet())
-        return out
+        val tok = arrayOfNulls<String>(1)
+        walk(root, out, seen, tok)
+        return Pair(out, tok[0])
     }
 
-    fun search(q: String): List<SearchHit> {
-        val c = cache[q]
-        if (c != null && System.currentTimeMillis() - c.first < 5 * 60_000) return c.second
-        var out: List<SearchHit> = emptyList()
-        try {
-            out = innertube(q)
-        } catch (e: Throwable) {
+    /** Tim kiem phan trang khong gioi han (dung lai the continuation cua YouTube). Tra ve (ket qua trang do, con nua khong). */
+    fun searchPage(q: String, page: Int): Pair<List<SearchHit>, Boolean> {
+        val s = synchronized(sessions) {
+            var e = sessions[q]
+            if (e == null || System.currentTimeMillis() - e.created > 5 * 60_000) {
+                e = FSess()
+                sessions[q] = e
+            }
+            e
         }
-        if (out.isEmpty()) out = htmlSearch(q)
-        cache[q] = Pair(System.currentTimeMillis(), out)
-        return out
+        synchronized(s) {
+            while (s.pages.size <= page && !s.done) {
+                val r: Pair<List<SearchHit>, String?>
+                if (!s.started) {
+                    val first: Pair<List<SearchHit>, String?>? = try {
+                        innertubePage(q, null, s.seen)
+                    } catch (e: Throwable) {
+                        null
+                    }
+                    s.started = true
+                    r = if (first != null && first.first.isNotEmpty()) first else htmlSearch(q, s.seen)
+                } else {
+                    r = innertubePage(q, s.next, s.seen)
+                }
+                s.pages.add(r.first)
+                s.next = r.second
+                if (r.second == null) s.done = true
+            }
+            val list = s.pages.getOrNull(page) ?: emptyList()
+            return Pair(list, s.pages.size > page + 1 || !s.done)
+        }
     }
 
     /** Tieu de + kenh qua oEmbed (nhe, on dinh). */
@@ -282,10 +342,14 @@ object Resolver {
     }
 }
 
-data class SearchHit(val videoId: String, val title: String, val channel: String, val durationSec: Int)
+/** kind = "video" | "playlist". Voi playlist: videoId = ma playlist, count = so video (0 = chua biet), thumb = anh bia. */
+data class SearchHit(
+    val videoId: String, val title: String, val channel: String, val durationSec: Int,
+    val kind: String = "video", val thumb: String = "", val count: Int = 0
+)
 
 object SearchService {
-    private class Sess(val ex: SearchExtractor) {
+    private class Sess(val ex: ListExtractor<out InfoItem>) {
         val created = System.currentTimeMillis()
         var started = false
         var done = false
@@ -297,13 +361,35 @@ object SearchService {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Sess>?): Boolean = size > 30
     }
 
-    private fun newExtractor(q: String): SearchExtractor {
+    private val PL_ID = Regex("^[A-Za-z0-9_-]{2,64}$")
+    private val titles = ConcurrentHashMap<String, String>()
+
+    /** Tu khoa dang mo playlist co dang "pl:<ma>" - hien ten playlist thay vi ma. */
+    fun displayQuery(q: String): String =
+        if (q.startsWith("pl:")) (titles[q.substring(3)]?.takeIf { it.isNotEmpty() } ?: "Danh sách phát") else q
+
+    private fun newExtractor(q: String): ListExtractor<out InfoItem> {
         val svc = ServiceList.YouTube
-        val handler = svc.searchQHFactory.fromQuery(q, listOf("videos"), "")
+        if (q.startsWith("pl:")) {
+            val id = q.substring(3)
+            if (!PL_ID.matches(id)) throw IllegalArgumentException("bad playlist id")
+            return svc.getPlaylistExtractor("https://www.youtube.com/playlist?list=$id")
+        }
+        // Khong loc loai: giong trang tim kiem YouTube (video, MV, playlist...)
+        val handler = svc.searchQHFactory.fromQuery(q, emptyList(), "")
         return svc.getSearchExtractor(handler)
     }
 
     private fun toHit(it: InfoItem): SearchHit? {
+        if (it is PlaylistInfoItem) {
+            val url = it.url ?: return null
+            val id = Regex("[?&]list=([A-Za-z0-9_-]+)").find(url)?.groupValues?.get(1) ?: return null
+            if (id.startsWith("RD")) return null // "Mix" tu dong, khong co danh sach co dinh
+            val th = try { it.thumbnails.firstOrNull()?.url ?: "" } catch (e: Throwable) { "" }
+            val cnt = try { it.streamCount.toInt().coerceAtLeast(0) } catch (e: Throwable) { 0 }
+            titles[id] = it.name ?: ""
+            return SearchHit(id, it.name ?: "", it.uploaderName ?: "", 0, "playlist", th, cnt)
+        }
         if (it !is StreamInfoItem) return null
         if (it.streamType != StreamType.VIDEO_STREAM) return null
         val dur = it.duration.toInt()
@@ -312,27 +398,38 @@ object SearchService {
         return SearchHit(id, it.name ?: "", it.uploaderName ?: "", dur)
     }
 
-    /** Blocking. Returns (hits for that page, hasMore). */
+    /** Blocking. Returns (hits for that page, hasMore). Khong gioi han so trang: cuon toi dau tai toi do. */
     fun search(query: String, page: Int, karaoke: Boolean): Pair<List<SearchHit>, Boolean> {
         return try {
             guard { searchImpl(query, page, karaoke) }
         } catch (e: Throwable) {
-            // NewPipe loi (YouTube doi giao dien, thu vien khong hop may...) -> dung phuong an du phong
+            if (query.startsWith("pl:")) throw e
+            // NewPipe loi (YouTube doi giao dien, thu vien khong hop may...) -> dung phuong an du phong (cung phan trang)
             CrashLog.soft("SEARCH-NEWPIPE", e)
             var q = query.trim()
             val low = q.lowercase()
             if (karaoke && !low.contains("karaoke") && !low.contains("beat")) q += " karaoke"
-            val all = YtScrape.search(q)
-            val from = page * 10
-            val list = if (from < all.size) all.subList(from, minOf(all.size, from + 10)) else emptyList()
-            Pair(list, from + 10 < all.size)
+            YtScrape.searchPage(q, page)
         }
+    }
+
+    /** Lay toi da [max] video cua mot playlist (de them ca danh sach vao hang doi). */
+    fun playlistVideos(id: String, max: Int): List<SearchHit> {
+        val out = ArrayList<SearchHit>()
+        var p = 0
+        while (out.size < max && p < 60) {
+            val r = search("pl:$id", p, false)
+            for (h in r.first) if (h.kind == "video" && out.none { it.videoId == h.videoId }) out.add(h)
+            if (!r.second) break
+            p++
+        }
+        return if (out.size > max) ArrayList(out.subList(0, max)) else out
     }
 
     private fun searchImpl(query: String, page: Int, karaoke: Boolean): Pair<List<SearchHit>, Boolean> {
         var q = query.trim()
         val low = q.lowercase()
-        if (karaoke && !low.contains("karaoke") && !low.contains("beat")) q += " karaoke"
+        if (!q.startsWith("pl:") && karaoke && !low.contains("karaoke") && !low.contains("beat")) q += " karaoke"
         val key = q
         val s = synchronized(cache) {
             var e = cache[key]
@@ -344,7 +441,7 @@ object SearchService {
         }
         synchronized(s) {
             while (s.pages.size <= page && !s.done) {
-                val p: ListExtractor.InfoItemsPage<InfoItem> = if (!s.started) {
+                val p: ListExtractor.InfoItemsPage<out InfoItem> = if (!s.started) {
                     s.ex.fetchPage()
                     s.started = true
                     s.ex.initialPage
