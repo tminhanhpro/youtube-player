@@ -22,7 +22,7 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 | Phím | Tác dụng |
 |---|---|
 | OK trên một bài | Phát ngay (nếu đang phát bài gợi ý) hoặc thêm vào cuối hàng đợi |
-| MENU hoặc **giữ OK** trên một bài | Ưu tiên: đưa lên đầu hàng đợi |
+| MENU hoặc **giữ OK** trên một bài | Mở menu: Thêm/Xoá Yêu thích, Tải nhạc, Phát ngay, Thêm vào hàng đợi |
 | OK trên bài ở hàng đợi | Phát ngay bài đó |
 | OK trên nút của bài ở hàng đợi | Phát / Lên / Xuống / Xoá; MENU = xoá khỏi hàng đợi |
 | Giữ OK trên thể loại tự tạo | Xoá thể loại |

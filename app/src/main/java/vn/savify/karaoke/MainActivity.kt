@@ -638,7 +638,7 @@ class MainActivity : Activity(), IframeHost {
 
         row.addView(squareBtn("qr") { showQr() }, lin(p(56), p(56), r = 12))
         row.addView(squareBtn("gear") { showSettings() }, lin(p(56), p(56), r = 12))
-        row.addView(squareBtn(if (dark) "sun" else "moon") { toggleTheme() }, lin(p(56), p(56), r = 18))
+        row.addView(squareBtn("contrast") { toggleTheme() }, lin(p(56), p(56), r = 18))
 
         val chip = LinearLayout(this)
         chip.orientation = LinearLayout.HORIZONTAL
@@ -1386,8 +1386,8 @@ class MainActivity : Activity(), IframeHost {
         c.tag = CardTag(h, idx)
         Img.load(iv, if (h.thumb.isNotEmpty()) h.thumb else Util.thumb(h.videoId))
         c.setOnClickListener { if (isPl) openPlaylist(h) else addHit(h, false) }
-        // Nhan 1 lan OK = them vao danh sach phat; giu OK = them vao Yeu thich (trong muc Yeu thich: giu OK = xoa)
-        c.setOnLongClickListener { if (isPl) addPlaylist(h) else if (favMode) removeFav(h) else addFav(h); true }
+        // OK 1 lan = them vao hang doi; giu OK (hoac MENU) = hop menu: Yeu thich / Tai nhac / Phat ngay / Hang doi
+        c.setOnLongClickListener { if (isPl) addPlaylist(h) else showCardMenu(h); true }
         c.setOnFocusChangeListener { _, f ->
             if (f) {
                 val total = core?.controller?.search?.value?.results?.size ?: 0
@@ -1462,7 +1462,7 @@ class MainActivity : Activity(), IframeHost {
         cardViews.clear()
         shownQuery = "\u0000fav"; shownCount = -1; shownFirst = null
         status.text = if (favs.isEmpty()) "Chưa có bài yêu thích. Khi tìm kiếm, giữ phím OK trên bài hát để thêm vào đây."
-        else "❤ Yêu thích · ${favs.size} bài · OK: thêm vào danh sách phát · Giữ OK: xoá khỏi Yêu thích"
+        else "❤ Yêu thích · ${favs.size} bài · OK: thêm vào hàng đợi · Giữ OK: menu (xoá khỏi Yêu thích, tải…)"
         val cols = gridCols
         var i = 0
         while (i < favs.size) {
@@ -1950,6 +1950,26 @@ class MainActivity : Activity(), IframeHost {
         val c = core
         if (c != null) updateQr(c)
         showSheet(qrCard, 480)
+    }
+
+    /** Menu cua mot bai (giu OK / MENU tren the bai). */
+    private fun showCardMenu(h: SearchHit) {
+        if (h.videoId.startsWith("local:")) { addHit(h, false); return }
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        body.addView(lbl(h.title, 22, MUTED, false, 2), lin(-1, -2, b = 14))
+        var dlg: AlertDialog? = null
+        fun item(text: String, red: Boolean = false, act: () -> Unit) {
+            val b = sheetBtn(text, red) { dlg?.dismiss(); act() }
+            body.addView(b, lin(-1, p(56), t = 10))
+        }
+        val fav = isFav(h.videoId)
+        item(if (fav) "💔  Xoá khỏi Yêu thích" else "❤  Thêm Yêu thích") { if (fav) removeFav(h) else addFav(h) }
+        item("⬇  Tải nhạc") { downloadHit(h) }
+        item("▶  Phát ngay", true) { playNowItem(h.videoId, h.title, h.channel, h.durationSec) }
+        item("＋  Thêm vào hàng đợi") { addHit(h, false) }
+        dlg = showSheet(body, 560)
+        (body.getChildAt(1) as? View)?.post { body.getChildAt(1).requestFocus() }
     }
 
     private fun showCatMenu() {
@@ -2678,7 +2698,7 @@ class MainActivity : Activity(), IframeHost {
         }
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             when (val tag = currentFocus?.tag) {
-                is CardTag -> if (tag.hit.kind == "playlist") addPlaylist(tag.hit) else addHit(tag.hit, true)
+                is CardTag -> if (tag.hit.kind == "playlist") addPlaylist(tag.hit) else showCardMenu(tag.hit)
                 is QueueTag -> removeQueueItem(tag.item)
                 else -> showSettings()
             }

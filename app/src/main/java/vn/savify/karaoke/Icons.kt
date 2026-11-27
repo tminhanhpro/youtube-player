@@ -171,25 +171,13 @@ class IconView(ctx: Context, var kind: String, var color: Int = Color.WHITE) : V
                 a.moveTo(5f, 12.5f); a.lineTo(10f, 17.5f); a.lineTo(19f, 7f)
                 c.drawPath(a, line)
             }
-            "sun" -> {
-                c.drawCircle(12f, 12f, 4.5f, line)
-                for (i in 0 until 8) {
-                    val a = Math.toRadians(i * 45.0)
-                    c.drawLine(12f + (7.5f * Math.cos(a)).toFloat(), 12f + (7.5f * Math.sin(a)).toFloat(),
-                        12f + (10f * Math.cos(a)).toFloat(), 12f + (10f * Math.sin(a)).toFloat(), line)
-                }
-            }
-            "moon" -> {
-                val m = Path()
-                m.moveTo(20f, 14.5f)
-                m.cubicTo(18.5f, 15.2f, 16.8f, 15.5f, 15f, 15.5f)
-                m.cubicTo(9.8f, 15.5f, 6.5f, 11.8f, 6.5f, 7.5f)
-                m.cubicTo(6.5f, 6.3f, 6.7f, 5.2f, 7.2f, 4.2f)
-                m.cubicTo(4.8f, 5.6f, 3.5f, 8.2f, 3.5f, 11f)
-                m.cubicTo(3.5f, 15.9f, 7.4f, 20f, 12.5f, 20f)
-                m.cubicTo(15.7f, 20f, 18.5f, 18.4f, 20f, 14.5f)
-                m.close()
-                c.drawPath(m, line)
+            "contrast" -> {
+                c.drawCircle(12f, 12f, 8.5f, line)
+                val h = Path()
+                h.moveTo(12f, 3.5f)
+                h.arcTo(RectF(3.5f, 3.5f, 20.5f, 20.5f), -90f, 180f)
+                h.close()
+                c.drawPath(h, fill)
             }
             "gear" -> {
                 c.drawCircle(12f, 12f, 4f, line)
