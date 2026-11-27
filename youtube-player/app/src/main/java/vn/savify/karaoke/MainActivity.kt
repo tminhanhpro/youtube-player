@@ -2138,7 +2138,7 @@ class MainActivity : Activity(), IframeHost {
         val audio = c.settings.dlMode == "audio"
         toast("Đang tải: ${h.title}")
         scope.launch {
-            val err = withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio) }
+            val err = withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio, c.settings.dlHeight) }
             toast(if (err == null) "Đã tải xong: ${h.title}" else "Tải lỗi: $err")
         }
     }
@@ -2156,7 +2156,7 @@ class MainActivity : Activity(), IframeHost {
         scope.launch {
             for (h in todo) {
                 if (Downloads.cancelGen != gen) break
-                withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio) }
+                withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio, c.settings.dlHeight) }
             }
             toast("Đã xong tác vụ tải")
         }
@@ -2206,6 +2206,7 @@ class MainActivity : Activity(), IframeHost {
         }, lin(p(140), p(56), l = 10))
         root.addView(fr, lin(-1, -2, t = 12))
 
+        var styleQualHook: (() -> Unit)? = null
         // Kieu tai
         val mr = LinearLayout(this)
         mr.orientation = LinearLayout.HORIZONTAL
@@ -2223,12 +2224,46 @@ class MainActivity : Activity(), IframeHost {
                 )
             }
         }
-        bVideo.setOnClickListener { c.settings.dlMode = "video"; styleMode() }
-        bAudio.setOnClickListener { c.settings.dlMode = "audio"; styleMode() }
+        bVideo.setOnClickListener { c.settings.dlMode = "video"; styleMode(); styleQualHook?.invoke() }
+        bAudio.setOnClickListener { c.settings.dlMode = "audio"; styleMode(); styleQualHook?.invoke() }
         styleMode()
         mr.addView(bVideo, lin(p(190), p(50), r = 10))
         mr.addView(bAudio, lin(p(230), p(50)))
         root.addView(mr, lin(-1, -2, t = 12))
+
+        // Chat luong tai (chi ap dung khi tai hinh + tieng)
+        val qr = LinearLayout(this)
+        qr.orientation = LinearLayout.HORIZONTAL
+        qr.gravity = Gravity.CENTER_VERTICAL
+        qr.addView(lbl("Chất lượng:", 18, MUTED), lin(-2, -2, r = 12))
+        val qOpts = listOf(360 to "360p", 720 to "720p", 1080 to "1080p", 9999 to "Cao nhất")
+        val qBtns = qOpts.map { (h, name) -> sheetBtn(name, false) { } }
+        fun styleQual() {
+            val enabled = c.settings.dlMode != "audio"
+            for ((i, b) in qBtns.withIndex()) {
+                val on = enabled && c.settings.dlHeight == qOpts[i].first
+                focusable(
+                    b,
+                    if (on) box(0xFF00838F.toInt(), 20) else box(BTN, 20, 2, BTN_BORDER),
+                    box(if (on) 0xFF00838F.toInt() else FOCUS2, 20, 3, CYAN)
+                )
+                b.alpha = if (enabled) 1f else 0.45f
+            }
+        }
+        for ((i, b) in qBtns.withIndex()) {
+            b.setOnClickListener {
+                if (c.settings.dlMode == "audio") { toast("Đang chọn Chỉ tiếng — chọn Hình + tiếng để đổi chất lượng") }
+                else { c.settings.dlHeight = qOpts[i].first; styleQual() }
+            }
+            qr.addView(b, lin(p(if (i == 3) 160 else 120), p(50), r = 10))
+        }
+        styleQual()
+        styleQualHook = { styleQual() }
+        root.addView(qr, lin(-1, -2, t = 10))
+        root.addView(
+            lbl("Trên 720p app tải hình và tiếng riêng rồi ghép lại: file nặng hơn, tải lâu hơn. Video không có chất lượng đã chọn sẽ tự lấy mức gần nhất.", 16, MUTED, false, 2),
+            lin(-1, -2, t = 6)
+        )
 
         // Pham vi tai
         root.addView(sectionLabel("PHẠM VI TẢI"), lin(-1, -2, t = 18, b = 6))

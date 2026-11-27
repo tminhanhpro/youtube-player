@@ -47,6 +47,11 @@ class Settings(ctx: Context) {
         get() = sp.getString("dlMode", "video") ?: "video"
         set(v) { sp.edit().putString("dlMode", v).apply() }
 
+    /** Chat luong video khi tai ve (chieu cao toi da): 360 | 720 | 1080 | 9999 = cao nhat co the */
+    var dlHeight: Int
+        get() = sp.getInt("dlHeight", 720)
+        set(v) { sp.edit().putInt("dlHeight", v).apply() }
+
     /** So giay khong bam remote thi tu phong to video: 3..60; 0 = tat tu phong to (mac dinh 5) */
     var fullscreenSec: Int
         get() = sp.getInt("fullscreenSec", 5).coerceIn(0, 120)

@@ -1,6 +1,10 @@
 package vn.savify.karaoke
 
 import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Environment
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,6 +12,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -99,8 +104,93 @@ object Downloads {
 
     fun activeCount(): Int = jobs.values.count { !it.done && it.error == null }
 
-    /** Blocking: goi tu luong nen (Dispatchers.IO). Tra ve null neu thanh cong, hoac thong bao loi. */
-    fun download(videoId: String, title: String, channel: String, durationSec: Int, audioOnly: Boolean = false): String? {
+    /** Tai 1 URL (chia khuc 4MB) vao file t. onBytes(n) bao so byte vua nhan, de tinh tien do. */
+    private fun fetchTo(url: String, t: File, gen: Int, onBytes: (Int) -> Unit) {
+        val total = CLEN_RE.find(url)?.groupValues?.get(1)?.toLongOrNull() ?: -1L
+        val base = url.replace(RANGE_RE, "")
+        var pos = 0L
+        var finished = false
+        FileOutputStream(t).use { out ->
+            val buf = ByteArray(64 * 1024)
+            while (!finished) {
+                val end = pos + CHUNK - 1
+                val u = base + (if (base.contains("?")) "&" else "?") + "range=$pos-$end"
+                val req = Request.Builder().url(u).header("User-Agent", Util.UA).build()
+                http.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                    val ins = (resp.body ?: throw Exception("Rỗng")).byteStream()
+                    var got = 0L
+                    while (true) {
+                        if (cancelGen != gen) throw Exception("Đã huỷ")
+                        val n = ins.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        got += n
+                        pos += n
+                        onBytes(n)
+                    }
+                    if (got == 0L || (total > 0 && pos >= total) || (total <= 0 && got < CHUNK)) finished = true
+                }
+            }
+        }
+    }
+
+    private fun clen(url: String): Long = CLEN_RE.find(url)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+
+    private fun pickTrack(ex: MediaExtractor, prefix: String): Int {
+        for (i in 0 until ex.trackCount) {
+            if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith(prefix) == true) return i
+        }
+        throw Exception("Thiếu luồng $prefix")
+    }
+
+    private fun copyTrack(ex: MediaExtractor, mx: MediaMuxer, outTrack: Int, gen: Int) {
+        val buf = ByteBuffer.allocate(4 * 1024 * 1024)
+        val info = MediaCodec.BufferInfo()
+        while (true) {
+            if (cancelGen != gen) throw Exception("Đã huỷ")
+            buf.clear()
+            val n = ex.readSampleData(buf, 0)
+            if (n < 0) break
+            info.set(0, n, ex.sampleTime, ex.sampleFlags)
+            mx.writeSampleData(outTrack, buf, info)
+            ex.advance()
+        }
+    }
+
+    /** Ghep file hinh (mp4, khong tieng) + file tieng (m4a) thanh 1 file mp4 (khong ma hoa lai, rat nhanh). */
+    private fun mux(videoF: File, audioF: File, out: File, gen: Int) {
+        val vx = MediaExtractor()
+        val ax = MediaExtractor()
+        var mx: MediaMuxer? = null
+        var started = false
+        try {
+            vx.setDataSource(videoF.absolutePath)
+            ax.setDataSource(audioF.absolutePath)
+            val vt = pickTrack(vx, "video/")
+            val at = pickTrack(ax, "audio/")
+            vx.selectTrack(vt)
+            ax.selectTrack(at)
+            mx = MediaMuxer(out.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val vi = mx.addTrack(vx.getTrackFormat(vt))
+            val ai = mx.addTrack(ax.getTrackFormat(at))
+            mx.start()
+            started = true
+            copyTrack(vx, mx, vi, gen)
+            copyTrack(ax, mx, ai, gen)
+        } finally {
+            try { if (started) mx?.stop() } catch (e: Exception) { }
+            try { mx?.release() } catch (e: Exception) { }
+            try { vx.release() } catch (e: Exception) { }
+            try { ax.release() } catch (e: Exception) { }
+        }
+    }
+
+    /**
+     * Blocking: goi tu luong nen (Dispatchers.IO). Tra ve null neu thanh cong, hoac thong bao loi.
+     * maxH = chat luong video toi da (360/720/1080; 9999 = cao nhat co the). Tren 720p can ghep hinh + tieng.
+     */
+    fun download(videoId: String, title: String, channel: String, durationSec: Int, audioOnly: Boolean = false, maxH: Int = 720): String? {
         val d = dir ?: return "Chưa sẵn sàng"
         if (localFile(videoId) != null) return "Bài này đã được tải"
         val old = jobs[videoId]
@@ -109,56 +199,74 @@ object Downloads {
         val job = DlJob(videoId, title)
         jobs[videoId] = job
         changed.value++
-        var tmp: File? = null
+        val temps = ArrayList<File>()
         try {
-            val r = Resolver.resolve(videoId, 720)
+            val r = Resolver.resolve(videoId, maxH)
             val muxed = r.sources.firstOrNull { it.audio == null }
-            val withAudio = r.sources.firstOrNull { it.audio != null }
-            val url: String
-            val ext: String
-            if (!audioOnly && muxed != null) {
-                url = muxed.video; ext = "mp4"          // hinh + tieng trong 1 file
-            } else if (withAudio != null) {
-                url = withAudio.audio!!; ext = "m4a"    // chi tieng
+            val split = r.sources.firstOrNull { it.audio != null }   // hinh rieng + tieng rieng (do phan giai cao)
+            if (!audioOnly && split != null) {
+                // Chat luong cao: tai hinh va tieng rieng roi ghep
+                val vF = File(d, "$videoId.v.part"); temps.add(vF)
+                val aF = File(d, "$videoId.a.part"); temps.add(aF)
+                val total = (clen(split.video) + clen(split.audio!!)).coerceAtLeast(1L)
+                var done = 0L
+                var lastTick = -1
+                val tick = { n: Int ->
+                    done += n
+                    job.pct = (done * 95 / total).toInt().coerceIn(0, 95)
+                    if (job.pct != lastTick) { lastTick = job.pct; changed.value++ }
+                }
+                try {
+                    fetchTo(split.video, vF, gen, tick)
+                    fetchTo(split.audio!!, aF, gen, tick)
+                    val mF = File(d, "$videoId.mp4.part"); temps.add(mF)
+                    mux(vF, aF, mF, gen)
+                    val f = File(d, "$videoId.mp4")
+                    if (f.exists()) f.delete()
+                    if (!mF.renameTo(f)) throw Exception("Không lưu được file")
+                } catch (e: Exception) {
+                    if (cancelGen != gen || muxed == null) throw e
+                    // Ghep loi: ha xuong ban hinh+tieng san co (360p/720p)
+                    temps.forEach { try { it.delete() } catch (x: Exception) { } }
+                    val t = File(d, "$videoId.mp4.part"); temps.add(t)
+                    val tot2 = clen(muxed.video).coerceAtLeast(1L)
+                    var dn = 0L
+                    var lt = -1
+                    fetchTo(muxed.video, t, gen) { n ->
+                        dn += n
+                        job.pct = (dn * 99 / tot2).toInt().coerceIn(0, 99)
+                        if (job.pct != lt) { lt = job.pct; changed.value++ }
+                    }
+                    val f = File(d, "$videoId.mp4")
+                    if (f.exists()) f.delete()
+                    if (!t.renameTo(f)) throw Exception("Không lưu được file")
+                }
+                try { vF.delete(); aF.delete() } catch (x: Exception) { }
             } else {
-                url = r.sources.first().video; ext = "mp4"
-            }
-            val total = CLEN_RE.find(url)?.groupValues?.get(1)?.toLongOrNull() ?: -1L
-            val base = url.replace(RANGE_RE, "")
-            val t = File(d, "$videoId.$ext.part")
-            tmp = t
-            var pos = 0L
-            var finished = false
-            var lastTick = 0
-            FileOutputStream(t).use { out ->
-                val buf = ByteArray(64 * 1024)
-                while (!finished) {
-                    val end = pos + CHUNK - 1
-                    val u = base + (if (base.contains("?")) "&" else "?") + "range=$pos-$end"
-                    val req = Request.Builder().url(u).header("User-Agent", Util.UA).build()
-                    http.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
-                        val ins = (resp.body ?: throw Exception("Rỗng")).byteStream()
-                        var got = 0L
-                        while (true) {
-                            if (cancelGen != gen) throw Exception("Đã huỷ")
-                            val n = ins.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            got += n
-                            pos += n
-                            if (total > 0) {
-                                job.pct = (pos * 100 / total).toInt().coerceIn(0, 99)
-                                if (job.pct != lastTick) { lastTick = job.pct; changed.value++ }
-                            }
-                        }
-                        if (got == 0L || (total > 0 && pos >= total) || (total <= 0 && got < CHUNK)) finished = true
+                val url: String
+                val ext: String
+                if (!audioOnly && muxed != null) {
+                    url = muxed.video; ext = "mp4"          // hinh + tieng trong 1 file
+                } else if (r.sources.firstOrNull { it.audio != null } != null) {
+                    url = r.sources.first { it.audio != null }.audio!!; ext = "m4a"    // chi tieng
+                } else {
+                    url = r.sources.first().video; ext = "mp4"
+                }
+                val total = CLEN_RE.find(url)?.groupValues?.get(1)?.toLongOrNull() ?: -1L
+                val t = File(d, "$videoId.$ext.part"); temps.add(t)
+                var got = 0L
+                var lastTick = 0
+                fetchTo(url, t, gen) { n ->
+                    got += n
+                    if (total > 0) {
+                        job.pct = (got * 100 / total).toInt().coerceIn(0, 99)
+                        if (job.pct != lastTick) { lastTick = job.pct; changed.value++ }
                     }
                 }
+                val f = File(d, "$videoId.$ext")
+                if (f.exists()) f.delete()
+                if (!t.renameTo(f)) throw Exception("Không lưu được file")
             }
-            val fin = File(d, "$videoId.$ext")
-            if (fin.exists()) fin.delete()
-            if (!t.renameTo(fin)) throw Exception("Không lưu được file")
             File(d, "$videoId.txt").writeText(
                 listOf(title.ifBlank { r.title }, channel.ifBlank { r.channel }, (if (durationSec > 0) durationSec else r.durationSec).toString())
                     .joinToString("\n")
@@ -168,7 +276,7 @@ object Downloads {
             changed.value++
             return null
         } catch (e: Throwable) {
-            try { tmp?.delete() } catch (x: Exception) { }
+            temps.forEach { try { it.delete() } catch (x: Exception) { } }
             val msg = (e.message ?: "lỗi mạng").take(80)
             job.error = msg
             changed.value++
