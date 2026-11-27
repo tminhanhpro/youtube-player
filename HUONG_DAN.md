@@ -6,7 +6,7 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 
 ## Giao diện TV (bố cục mới)
 - **Thanh trên cùng**: logo + tên app, trạng thái remote, 3 nút tròn **Yêu thích** (hồng), **Nhạc trong máy** (xanh lá), **Tải sẵn về máy** (xanh ngọc, hiện số bài đang tải); bên phải: nút **QR** (mở hộp mã QR kết nối remote), nút **Cài đặt**, nút **Sáng/Tối** (mặt trời/mặt trăng, ngay bên phải nút Cài đặt; bấm để đổi giao diện sáng ↔ tối, được nhớ lại), Wi-Fi, đồng hồ. **Bấm vào logo** (góc trái) từ Yêu thích / danh sách phát để quay về trang tìm kiếm cũ.
-- **Hàng tìm kiếm**: micro, ô tìm + nút **TÌM** + nút **Danh Mục ▾** (mở danh sách thể loại; giữ OK hoặc nút Xoá để xoá thể loại, có nút tạo thể loại mới), nút **Karaoke**.
+- **Hàng tìm kiếm**: micro, ô tìm + nút **XOÁ** (xoá hết chữ trong ô tìm, nằm bên trái nút TÌM) + nút **TÌM** + nút **Danh Mục ▾** (mở danh sách thể loại; giữ OK hoặc nút Xoá để xoá thể loại, có nút tạo thể loại mới), nút **Karaoke**.
 - **Trái**: lưới kết quả (mặc định 2 bài/hàng; Cài đặt → "Số bài mỗi hàng kết quả" xoay vòng 1 → 2 → 3 → 4). Mỗi bài có nút tải xuống ở góc ảnh.
 - **Giữa**: **HÀNG ĐỢI TIẾP THEO** — mỗi bài có 4 nút: Phát ngay, Lên, Xuống, Xoá; chân khung có tổng thời gian và nút **Dán Link** (thêm bài từ link YouTube).
 - **Phải**: **ĐANG PHÁT** — màn hình nhỏ (nhãn độ phân giải, nhãn ĐANG PHÁT/ĐANG TẠM DỪNG, nút phóng to), tiêu đề, kênh, thanh tiến trình, 6 nút (lùi 10s, phát/dừng, bài tiếp, tua 10s, **phát lại từ đầu**, **lặp lại**), thanh trượt âm lượng.
@@ -22,7 +22,7 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 | Phím | Tác dụng |
 |---|---|
 | OK trên một bài | Phát ngay (nếu đang phát bài gợi ý) hoặc thêm vào cuối hàng đợi |
-| MENU hoặc **giữ OK** trên một bài | Mở menu: Thêm/Xoá Yêu thích, Tải nhạc, Phát ngay, Thêm vào hàng đợi |
+| MENU hoặc **giữ OK** trên một bài | Mở menu: Thêm/Xoá Yêu thích, Tải nhạc, Phát ngay, Thêm vào hàng đợi, **Xem video kênh này** (tự tải toàn bộ video của kênh, cuộn tới cuối tự tải tiếp; BACK để quay lại kết quả trước) |
 | OK trên bài ở hàng đợi | Phát ngay bài đó |
 | OK trên nút của bài ở hàng đợi | Phát / Lên / Xuống / Xoá; MENU = xoá khỏi hàng đợi |
 | Giữ OK trên thể loại tự tạo | Xoá thể loại |

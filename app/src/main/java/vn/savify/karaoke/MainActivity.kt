@@ -136,7 +136,7 @@ class MainActivity : Activity(), IframeHost {
             leaveFavMode()
             syncCatToQuery(sv.query)
             renderSearch(sv)
-        } else if (sv.query.startsWith("pl:") && back != null) {
+        } else if (SearchService.isSubQuery(sv.query) && back != null) {
             plReturn = null
             tvSearch(back)
         }
@@ -741,6 +741,18 @@ class MainActivity : Activity(), IframeHost {
         }
         searchField.addView(searchEt, lin(0, -1, 1f, l = 6))
 
+        // Nut XOA (ben trai nut TIM): xoa het chu trong o tim kiem
+        val clearBtn = lbl("XOÁ", 24, TXT, true)
+        clearBtn.gravity = Gravity.CENTER
+        clearBtn.setPadding(p(24), 0, p(24), 0)
+        focusable(clearBtn, box(0x55FF1744, 26, 2, RED), box(RED, 26, 3, CYAN))
+        clearBtn.setOnClickListener {
+            searchEt.setText("")
+            searchEt.requestFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(searchEt, 0)
+        }
+        searchField.addView(clearBtn, lin(-2, p(52), l = 8))
+
         // Nut TIM
         val goBtn = lbl("TÌM", 24, TXT, true)
         goBtn.gravity = Gravity.CENTER
@@ -1262,12 +1274,13 @@ class MainActivity : Activity(), IframeHost {
         }
         val dq = SearchService.displayQuery(sv.query)
         val isPlQ = sv.query.startsWith("pl:")
+        val isChQ = sv.query.startsWith("ch:")
         status.text = when {
-            sv.loading && sv.results.isEmpty() -> if (isPlQ) "Đang mở danh sách phát…" else "Đang tìm “$dq”…"
+            sv.loading && sv.results.isEmpty() -> if (isChQ) "Đang tải video của kênh…" else if (isPlQ) "Đang mở danh sách phát…" else "Đang tìm “$dq”…"
             sv.error != null && sv.results.isEmpty() -> "Không tìm được: ${sv.error}"
             sv.query.isEmpty() -> "Bấm Danh Mục hoặc gõ tên bài hát để tìm"
             sv.results.isEmpty() -> "Không có kết quả cho “$dq”"
-            else -> (if (isPlQ) "Danh sách phát “$dq” · BACK để quay lại" else "Kết quả cho “$dq”") +
+            else -> (if (isChQ) "Tất cả video của “$dq” · BACK để quay lại" else if (isPlQ) "Danh sách phát “$dq” · BACK để quay lại" else "Kết quả cho “$dq”") +
                 (if (sv.source == "remote") " · từ điện thoại" else "") +
                 (if (sv.loading) " · đang tải thêm…" else "")
         }
@@ -1571,8 +1584,16 @@ class MainActivity : Activity(), IframeHost {
     private fun openPlaylist(h: SearchHit) {
         val c = core ?: return
         val cur = c.controller.search.value.query
-        if (!cur.startsWith("pl:")) plReturn = cur.takeIf { it.isNotEmpty() }
+        if (!SearchService.isSubQuery(cur)) plReturn = cur.takeIf { it.isNotEmpty() }
         tvSearch("pl:" + h.videoId)
+    }
+
+    /** Menu -> "Xem video kênh này": tự tải toàn bộ video của kênh (không phải tìm theo tên kênh). BACK để quay lại. */
+    private fun openChannel(h: SearchHit) {
+        val c = core ?: return
+        val cur = c.controller.search.value.query
+        if (!SearchService.isSubQuery(cur)) plReturn = cur.takeIf { it.isNotEmpty() }
+        tvSearch("ch:" + h.videoId)
     }
 
     /** Giu OK / MENU tren mot playlist: them toan bo video (toi da 100) vao hang doi. */
@@ -1968,6 +1989,7 @@ class MainActivity : Activity(), IframeHost {
         item("⬇  Tải nhạc") { downloadHit(h) }
         item("▶  Phát ngay", true) { playNowItem(h.videoId, h.title, h.channel, h.durationSec) }
         item("＋  Thêm vào hàng đợi") { addHit(h, false) }
+        item("📺  Xem video kênh này") { openChannel(h) }
         dlg = showSheet(body, 560)
         (body.getChildAt(1) as? View)?.post { body.getChildAt(1).requestFocus() }
     }
@@ -2678,7 +2700,7 @@ class MainActivity : Activity(), IframeHost {
         // Dang xem ben trong mot playlist -> BACK quay lai ket qua tim kiem truoc do
         val q = core?.controller?.search?.value?.query ?: ""
         val back = plReturn
-        if (q.startsWith("pl:") && back != null) {
+        if (SearchService.isSubQuery(q) && back != null) {
             plReturn = null
             tvSearch(back)
             return

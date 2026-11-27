@@ -9,6 +9,7 @@ import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
@@ -373,8 +374,14 @@ object SearchService {
     private val titles = ConcurrentHashMap<String, String>()
 
     /** Tu khoa dang mo playlist co dang "pl:<ma>" - hien ten playlist thay vi ma. */
-    fun displayQuery(q: String): String =
-        if (q.startsWith("pl:")) (titles[q.substring(3)]?.takeIf { it.isNotEmpty() } ?: "Danh sách phát") else q
+    fun displayQuery(q: String): String = when {
+        q.startsWith("pl:") -> titles[q.substring(3)]?.takeIf { it.isNotEmpty() } ?: "Danh sách phát"
+        q.startsWith("ch:") -> "Kênh: " + (titles[q]?.takeIf { it.isNotEmpty() } ?: "…")
+        else -> q
+    }
+
+    /** Tu khoa dang \"pl:\" (xem trong playlist) hoac \"ch:\" (xem video cua kenh). */
+    fun isSubQuery(q: String): Boolean = q.startsWith("pl:") || q.startsWith("ch:")
 
     private fun newExtractor(q: String): ListExtractor<out InfoItem> {
         val svc = ServiceList.YouTube
@@ -382,6 +389,19 @@ object SearchService {
             val id = q.substring(3)
             if (!PL_ID.matches(id)) throw IllegalArgumentException("bad playlist id")
             return svc.getPlaylistExtractor("https://www.youtube.com/playlist?list=$id")
+        }
+        if (q.startsWith("ch:")) {
+            // "ch:<ma video>": lay kenh cua video do roi tai toan bo video cua kenh (tab Video), khong phai tim theo ten kenh
+            val vid = q.substring(3)
+            if (!PL_ID.matches(vid)) throw IllegalArgumentException("bad video id")
+            val info = StreamInfo.getInfo("https://www.youtube.com/watch?v=$vid")
+            val chUrl = info.uploaderUrl?.takeIf { it.isNotEmpty() } ?: throw IllegalStateException("không có kênh")
+            val ch = svc.getChannelExtractor(chUrl)
+            ch.fetchPage()
+            titles[q] = try { ch.name ?: info.uploaderName ?: "" } catch (e: Throwable) { info.uploaderName ?: "" }
+            val tab = ch.tabs.firstOrNull { it.contentFilters.contains(ChannelTabs.VIDEOS) }
+                ?: throw IllegalStateException("kênh không có tab Video")
+            return svc.getChannelTabExtractor(tab)
         }
         // Khong loc loai: giong trang tim kiem YouTube (video, MV, playlist...)
         val handler = svc.searchQHFactory.fromQuery(q, emptyList(), "")
@@ -411,7 +431,7 @@ object SearchService {
         return try {
             guard { searchImpl(query, page, karaoke) }
         } catch (e: Throwable) {
-            if (query.startsWith("pl:")) throw e
+            if (isSubQuery(query)) throw e
             // NewPipe loi (YouTube doi giao dien, thu vien khong hop may...) -> dung phuong an du phong (cung phan trang)
             CrashLog.soft("SEARCH-NEWPIPE", e)
             var q = query.trim()
@@ -437,7 +457,7 @@ object SearchService {
     private fun searchImpl(query: String, page: Int, karaoke: Boolean): Pair<List<SearchHit>, Boolean> {
         var q = query.trim()
         val low = q.lowercase()
-        if (!q.startsWith("pl:") && karaoke && !low.contains("karaoke") && !low.contains("beat")) q += " karaoke"
+        if (!isSubQuery(q) && karaoke && !low.contains("karaoke") && !low.contains("beat")) q += " karaoke"
         val key = q
         val s = synchronized(cache) {
             var e = cache[key]
