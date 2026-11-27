@@ -229,7 +229,7 @@
       $('results-status').textContent = results.length ? '' : t('no_results');
       showTab('search'); renderRecent();
     }
-    hasMore = !!ts.hasMore; page = ts.page + 1;
+    hasMore = !!ts.hasMore; page = ts.page + 1; loadFailed = false; updateMoreBtn();
   }
 
   // TV doi che do karaoke -> dien thoai doi theo (TV tu tim lai, dien thoai chi cap nhat o tich)
@@ -803,9 +803,9 @@
     if (q && reset && !isPl && ytLink(q)) { showLinkCard(q); return; }
     var eq = isPl ? q : effQuery(q);
     if (!eq) { ++reqId; results = []; curQuery = ''; curRaw = ''; hasMore = false; loading = false; $('results').textContent = ''; $('results-status').textContent = ''; renderRecent(); return; }
-    if (reset) { page = 0; results = []; hasMore = false; curQuery = eq; curRaw = q; $('results').textContent = ''; if (q && !isPl) pushRecentLater(q); }
+    if (reset) { loadFailed = false; page = 0; results = []; hasMore = false; curQuery = eq; curRaw = q; $('results').textContent = ''; if (q && !isPl) pushRecentLater(q); }
     var my = ++reqId;
-    loading = true;
+    loading = true; loadFailed = false; updateMoreBtn();
     $('results-status').textContent = '';
     var sk = el('li', 'skeleton'); sk.id = 'sk'; $('results').appendChild(sk);
     api('GET', '/api/search?q=' + encodeURIComponent(eq) + '&page=' + page + '&karaoke=' + (karaoke ? 1 : 0) + ((searchMode === 'channel' && q && !isPl) ? '&channel=' + encodeURIComponent(q) : ''))
@@ -817,11 +817,29 @@
         r.results.forEach(function (it) { results.push(it); appendResult(it); });
         if (!results.length) $('results-status').textContent = t('no_results');
         page = r.page + 1;
+        updateMoreBtn();
+        setTimeout(checkMore, 0);   // trang vua tai ngan / bi loc het ma sentinel van dang hien -> tai tiep ngay
       }).catch(function (e) {
         if (my !== reqId) return;
-        removeSk(); loading = false; hasMore = false;
+        removeSk(); loading = false;
+        // giu hasMore de nguoi dung thu lai (khong khoa vinh vien)
         $('results-status').textContent = errText(e);
+        loadFailed = true; updateMoreBtn();
       });
+  }
+  var loadFailed = false;
+  /** Sentinel dang nam trong (hoac sat) vung nhin thay ma con ket qua -> tai trang ke tiep. */
+  function checkMore() {
+    if (!hasMore || loading || !curQuery || loadFailed) return;
+    var s = $('sentinel'); if (!s || $('view-search').hidden) return;
+    var r = s.getBoundingClientRect();
+    if (r.top < (window.innerHeight || document.documentElement.clientHeight) + 400) doSearch(curRaw, false);
+  }
+  function updateMoreBtn() {
+    var b = $('more-btn'); if (!b) return;
+    b.hidden = !(hasMore && results.length);
+    b.textContent = loadFailed ? '↻ ' + t('search_failed') : (loading ? t('loading') : '▼');
+    b.setAttribute('aria-label', 'Load more');
   }
   var recentTimer = null;
   function pushRecentLater(q) { clearTimeout(recentTimer); recentTimer = setTimeout(function () { if (q === curRaw) pushRecent(q); }, 1500); }
@@ -911,9 +929,17 @@
   function setupScroll() {
     if (!('IntersectionObserver' in window)) return;
     io = new IntersectionObserver(function (entries) {
-      if (entries[0].isIntersecting && hasMore && !loading && curQuery) doSearch(curRaw, false);
-    }, { rootMargin: '300px' });
+      if (entries[0].isIntersecting) checkMore();
+    }, { rootMargin: '600px' });
     io.observe($('sentinel'));
+  }
+  // du phong: IntersectionObserver chi bao khi trang thai THAY DOI, nen them scroll + nut mui ten xuong
+  function setupMoreFallback() {
+    var main = document.querySelector('main');
+    if (main) main.addEventListener('scroll', function () { checkMore(); }, { passive: true });
+    window.addEventListener('scroll', function () { checkMore(); }, { passive: true });
+    var b = $('more-btn');
+    if (b) b.addEventListener('click', function () { loadFailed = false; if (hasMore && !loading && curQuery) doSearch(curRaw, false); });
   }
 
   // ------------------------------------------------------------ tabs / sheets
@@ -1290,7 +1316,7 @@
       });
     });
 
-    setupScroll();
+    setupScroll(); setupMoreFallback();
     poll();
   }
 

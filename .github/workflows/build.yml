@@ -1,0 +1,83 @@
+name: Build APK
+
+# Tự build APK mỗi khi đẩy code lên nhánh main/master (hoặc bấm tay: Actions -> Build APK -> Run workflow)
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '**/version.txt'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # để commit lại version.txt và tạo Release
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # Repo có thể để project ở thư mục gốc hoặc trong thư mục youtube-player/
+      - name: Tìm thư mục project
+        id: proj
+        run: |
+          if [ -f build.gradle.kts ]; then d=.
+          elif [ -f youtube-player/build.gradle.kts ]; then d=youtube-player
+          else echo "Không thấy build.gradle.kts"; exit 1; fi
+          echo "dir=$d" >> "$GITHUB_OUTPUT"
+
+      - name: Tăng số phiên bản (1.N)
+        id: ver
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          n=$(cat version.txt 2>/dev/null | tr -dc '0-9')
+          n=$(( ${n:-0} + 1 ))
+          echo "$n" > version.txt
+          echo "minor=$n" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Chấp nhận license Android SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build APK release
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: gradle assembleRelease -PappMinor=${{ steps.ver.outputs.minor }} --no-daemon --stacktrace
+
+      - name: Đổi tên APK
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: cp app/build/outputs/apk/release/app-release.apk youtube-player.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: youtube-player-apk
+          path: ${{ steps.proj.outputs.dir }}/youtube-player.apk
+
+      # Tạo trang Release để tải APK trực tiếp (Releases ở cột phải trang repo)
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ steps.ver.outputs.minor }}
+          name: Youtube Player 1.${{ steps.ver.outputs.minor }}
+          files: ${{ steps.proj.outputs.dir }}/youtube-player.apk
+
+      - name: Lưu số phiên bản lại vào repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- '*version.txt'
+          git commit -m "chore: version 1.${{ steps.ver.outputs.minor }} [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"

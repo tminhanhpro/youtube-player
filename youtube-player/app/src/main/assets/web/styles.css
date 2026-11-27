@@ -335,3 +335,7 @@ body.typing .transport,body.typing .mini{display:none}
 .catform{display:flex;flex-direction:column;gap:8px}
 .catform input{min-height:48px;font-size:calc(17px * var(--fs))}
 .catempty{color:var(--muted);padding:8px 2px}
+
+.more-btn{display:block;margin:6px auto 18px;min-width:120px;min-height:44px;padding:0 24px;border-radius:24px;font-size:calc(18px * var(--fs));font-weight:800;background:var(--card);color:var(--fg,inherit);border:1px solid var(--line)}
+.more-btn[hidden]{display:none}
+#sentinel{min-height:1px}

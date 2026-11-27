@@ -144,6 +144,15 @@ class Controller(
         }
     }
 
+    /** Tai them bi loi: giu nguyen ket qua + hasMore (de nguoi dung thu lai), chi bao loi. */
+    fun searchMoreFail(q: String, msg: String) {
+        synchronized(searchLock) {
+            val o = search.value
+            if (o.query != q) return
+            search.value = o.copy(version = o.version + 1, loading = false, error = msg)
+        }
+    }
+
     fun searchFail(q: String, source: String, msg: String) {
         synchronized(searchLock) {
             val o = search.value

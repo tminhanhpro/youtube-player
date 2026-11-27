@@ -1289,7 +1289,14 @@ class MainActivity : Activity(), IframeHost {
 
         val res = sv.results
         val same = sv.query == shownQuery && res.size == shownCount && res.firstOrNull()?.videoId == shownFirst
-        if (same) return
+        if (same) {
+            // Khong co bai moi (vd trang tai ve bi loc het / loi mang): cap nhat nut "tai them" roi tu tai tiep neu dang o cuoi
+            updateMoreFooter(sv, false)
+            maybeAutoLoadMore(sv)
+            return
+        }
+        val footerHadFocus = moreView?.hasFocus() == true
+        (moreView?.parent as? ViewGroup)?.removeView(moreView)
         val append = sv.query == shownQuery && shownCount > 0 && res.size > shownCount &&
             res.firstOrNull()?.videoId == shownFirst
 
@@ -1320,8 +1327,52 @@ class MainActivity : Activity(), IframeHost {
         shownCount = res.size
         shownFirst = res.firstOrNull()?.videoId
 
-        if (fIdx >= 0 && fIdx < cardViews.size) cardViews[fIdx].requestFocus()
+        updateMoreFooter(sv, true)
+        if (footerHadFocus && from < cardViews.size) cardViews[from].requestFocus() // dang o nut "tai them" -> nhay toi bai moi dau tien
+        else if (fIdx >= 0 && fIdx < cardViews.size) cardViews[fIdx].requestFocus()
         else if (currentFocus == null && !fullscreen && cardViews.isNotEmpty()) cardViews[0].requestFocus()
+        maybeAutoLoadMore(sv)
+    }
+
+    private var moreView: View? = null
+
+    /** Nut/hang cuoi luoi ket qua: "▼ Tai them" (nhu YouTube cuon toi day la tai tiep). Cham/OK de tai, chi can focus toi cung tu tai. */
+    private fun updateMoreFooter(sv: SearchState, rebuilt: Boolean) {
+        val need = !favMode && sv.results.isNotEmpty() && (sv.hasMore || sv.error != null)
+        val txt = when {
+            sv.loading -> "Đang tải thêm…"
+            sv.error != null -> "⚠ Lỗi mạng — bấm OK để thử lại"
+            else -> "▼  Tải thêm video"
+        }
+        val cur = moreView
+        if (!need) {
+            (cur?.parent as? ViewGroup)?.removeView(cur)
+            moreView = null
+            return
+        }
+        if (cur != null && cur.parent === gridBox) {
+            (cur.tag as? TextView)?.text = txt
+            return
+        }
+        val f = FrameLayout(this)
+        val tv = lbl(txt, 24, TXT, true, 1)
+        tv.gravity = Gravity.CENTER
+        f.addView(tv, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+        f.setPadding(p(8), p(16), p(8), p(16))
+        focusable(f, box(PANEL, 18, 2, BORDER), box(FOCUS_CARD, 18, 4, CYAN))
+        f.tag = tv
+        f.setOnClickListener { tvLoadMore(true) }
+        f.setOnFocusChangeListener { _, hasF -> if (hasF) tvLoadMore() }
+        gridBox.addView(f, lin(-1, -2, b = 14))
+        moreView = f
+    }
+
+    /** Dang xem gan cuoi danh sach (hoac danh sach qua ngan de cuon) ma con bai -> tu tai tiep, khong can doi doi focus. */
+    private fun maybeAutoLoadMore(sv: SearchState) {
+        if (favMode || sv.loading || !sv.hasMore || sv.error != null || sv.query.isEmpty() || sv.results.isEmpty()) return
+        val fIdx = (currentFocus?.tag as? CardTag)?.index ?: -1
+        val nearEnd = moreView?.hasFocus() == true || (fIdx >= 0 && fIdx >= sv.results.size - 4) || sv.results.size < 12
+        if (nearEnd) gridBox.post { tvLoadMore() }
     }
 
     /** Doi so bai tren moi hang (1/2/3) roi ve lai luoi ket qua. */
@@ -1560,10 +1611,11 @@ class MainActivity : Activity(), IframeHost {
         }
     }
 
-    private fun tvLoadMore() {
+    private fun tvLoadMore(retry: Boolean = false) {
         val c = core ?: return
         val s = c.controller.search.value
         if (s.loading || !s.hasMore || s.query.isEmpty()) return
+        if (s.error != null && !retry) return // dang loi: cho nguoi dung bam OK thu lai (tranh lap vo han)
         val q = s.query
         val page = s.page + 1
         c.controller.searchLoadingMore()
@@ -1575,7 +1627,7 @@ class MainActivity : Activity(), IframeHost {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                c.controller.searchFail(q, s.source, (e.message ?: "lỗi mạng").take(100))
+                c.controller.searchMoreFail(q, (e.message ?: "lỗi mạng").take(100)) // giu ket qua + hasMore de thu lai
             }
         }
     }
