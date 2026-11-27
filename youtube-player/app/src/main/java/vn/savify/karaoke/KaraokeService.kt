@@ -28,6 +28,7 @@ class Core(
     val scope: CoroutineScope,
     ctx: Context
 ) {
+    init { Downloads.init(ctx.applicationContext); LocalLib.init(ctx.applicationContext) }
     val ip = MutableStateFlow<String?>(Lan.find(ctx))
     val port: Int get() = server.listeningPort
 }

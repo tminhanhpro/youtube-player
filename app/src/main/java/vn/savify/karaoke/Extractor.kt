@@ -294,7 +294,15 @@ object Resolver {
     fun resolve(videoId: String, maxH: Int): Resolved = guard { resolveImpl(videoId, maxH) }
 
     private fun resolveImpl(videoId: String, maxH: Int): Resolved {
+        if (videoId.startsWith("local:")) {
+            val u = LocalLib.uriFor(videoId) ?: throw UnavailableException("Local file missing")
+            return Resolved(listOf(Src(u, null)), Long.MAX_VALUE, LocalLib.titleFor(videoId), "", 0)
+        }
         cached(videoId, maxH)?.let { return it }
+        // Bai da tai ve may: phat thang tu file, khong can mang
+        Downloads.localUri(videoId)?.let { u ->
+            return Resolved(listOf(Src(u, null)), Long.MAX_VALUE, Downloads.metaTitle(videoId), "", 0)
+        }
         val info = StreamInfo.getInfo("https://www.youtube.com/watch?v=$videoId")
         val prog = DeliveryMethod.PROGRESSIVE_HTTP
 

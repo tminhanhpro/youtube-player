@@ -22,6 +22,7 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -71,16 +72,75 @@ private class QueueTag(val item: QueueItem)
 class MainActivity : Activity(), IframeHost {
 
     private companion object {
-        const val BG = 0xFF08080C.toInt()
-        const val PANEL = 0xFF111119.toInt()
-        const val PANEL2 = 0xFF1A1A26.toInt()
-        const val BORDER = 0xFF262634.toInt()
         const val RED = 0xFFFF1744.toInt()
-        const val MUTED = 0xFF9A9AB0.toInt()
         const val CYAN = 0xFF29B6F6.toInt()
         const val PINK = 0xFFFF4D8D.toInt()
         const val GREEN = 0xFF2ECC71.toInt()
         const val REQ_VOICE = 77
+        const val REQ_PICK_FILES = 78
+        const val REQ_PICK_PLAY = 79
+        const val REQ_PICK_TREE = 80
+        const val QUEUE_W = 456
+        const val TEAL = 0xFF26C6DA.toInt()
+        var resumeFav = false
+    }
+
+
+    // ---- giao dien sang / toi ----
+    private var dark = true
+    private var BG = 0
+    private var PANEL = 0
+    private var PANEL2 = 0
+    private var BORDER = 0
+    private var MUTED = 0
+    private var TXT = 0
+    private var TXT2 = 0
+    private var BTN = 0
+    private var BTN_BORDER = 0
+    private var BTN2 = 0
+    private var THUMB = 0
+    private var FOCUS = 0
+    private var FOCUS2 = 0
+    private var FOCUS_CARD = 0
+
+    private fun applyTheme() {
+        if (dark) {
+            BG = 0xFF08080C.toInt(); PANEL = 0xFF111119.toInt(); PANEL2 = 0xFF1A1A26.toInt()
+            BORDER = 0xFF262634.toInt(); MUTED = 0xFF9A9AB0.toInt()
+            TXT = Color.WHITE; TXT2 = 0xFFD6D6E2.toInt()
+            BTN = 0xFF2A2A38.toInt(); BTN_BORDER = 0xFF44445A.toInt(); BTN2 = 0xFF26263A.toInt()
+            THUMB = 0xFF1B1B26.toInt(); FOCUS = 0x22FFFFFF; FOCUS2 = 0x33FFFFFF; FOCUS_CARD = 0xFF1A2230.toInt()
+        } else {
+            BG = 0xFFF1F3F8.toInt(); PANEL = 0xFFFFFFFF.toInt(); PANEL2 = 0xFFE9ECF3.toInt()
+            BORDER = 0xFFCDD2DF.toInt(); MUTED = 0xFF5B6074.toInt()
+            TXT = 0xFF14141C.toInt(); TXT2 = 0xFF2B2E3D.toInt()
+            BTN = 0xFFE3E6EE.toInt(); BTN_BORDER = 0xFFB9BFCF.toInt(); BTN2 = 0xFFD5D9E5.toInt()
+            THUMB = 0xFFD9DCE6.toInt(); FOCUS = 0x22000000; FOCUS2 = 0x33000000; FOCUS_CARD = 0xFFDCEBFA.toInt()
+        }
+    }
+
+    /** Doi giao dien sang <-> toi: luu lai roi dung lai man hinh (video van phat vi nam trong service). */
+    private fun toggleTheme() {
+        Settings(this).darkUi = !dark
+        resumeFav = favMode
+        recreate()
+    }
+
+    /** Bam logo: thoat Yeu thich / danh sach phat / hop thoai, ve trang tim kiem cu. */
+    private fun goHome() {
+        val c = core ?: return
+        listOf(dlDialog, localDlg, catDialog).forEach { try { if (it?.isShowing == true) it.dismiss() } catch (e: Exception) {} }
+        val sv = c.controller.search.value
+        val back = plReturn
+        if (favMode) {
+            leaveFavMode()
+            syncCatToQuery(sv.query)
+            renderSearch(sv)
+        } else if (sv.query.startsWith("pl:") && back != null) {
+            plReturn = null
+            tvSearch(back)
+        }
+        if (cardViews.isNotEmpty() && !fullscreen) cardViews[0].post { cardViews[0].requestFocus() }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -112,8 +172,31 @@ class MainActivity : Activity(), IframeHost {
     private lateinit var clock: TextView
     private lateinit var portPill: TextView
     private lateinit var qrImg: ImageView
-    private lateinit var qrBody: LinearLayout
-    private lateinit var qrToggle: TextView
+    private lateinit var qrCard: LinearLayout
+    private lateinit var dlBadge: TextView
+    private lateinit var repeatBtn: View
+    private lateinit var repeatIcon: IconView
+    private lateinit var volSlider: SliderView
+    private var dlDialog: AlertDialog? = null
+    private var dlProgBox: LinearLayout? = null
+    private var dlLibBox: LinearLayout? = null
+    private var dlScopeBox: LinearLayout? = null
+    private var dlLibTitle: TextView? = null
+    private var dlFoot: TextView? = null
+    private var dlFilter = ""
+    private var dlLastCount = -1
+    private var localDlg: AlertDialog? = null
+    private var localItems: List<LocalItem> = emptyList()
+    private var localFilter = ""
+    private var localListBox: LinearLayout? = null
+    private var localChipBox: LinearLayout? = null
+    private var localAddAll: TextView? = null
+    private var localStatus: TextView? = null
+    private var pendingPlayIds: List<String> = emptyList()
+    private lateinit var catBtnView: View
+    private var catDialog: AlertDialog? = null
+    private val queueBtns = ArrayList<ArrayList<View>>()
+    private var pendingQFocus: Pair<Int, Int>? = null
     private var gridCols = 3
     private var centerWpx = 0
     private lateinit var qrCap: TextView
@@ -191,6 +274,9 @@ class MainActivity : Activity(), IframeHost {
     // ------------------------------------------------------------------ lifecycle
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        dark = Settings(this).darkUi
+        setTheme(if (dark) R.style.AppTheme else R.style.AppThemeLight)
+        applyTheme()
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         lastControlAt = SystemClock.elapsedRealtime()
@@ -296,12 +382,14 @@ class MainActivity : Activity(), IframeHost {
         cats.addAll(Cats.load(c.settings.sp))
         favs.clear()
         favs.addAll(Favs.load(c.settings.sp))
-        applyQrHidden(c.settings.qrHidden)
         if (gridCols != c.settings.gridCols) applyGridCols(c.settings.gridCols)
         renderCats()
+        if (resumeFav) { resumeFav = false; showFavorites() }
         coreJobs.add(scope.launch { c.controller.ui.collect { renderUi(it) } })
         coreJobs.add(scope.launch { c.controller.search.collect { renderSearch(it) } })
         coreJobs.add(scope.launch { c.controller.karaoke.collect { renderKaraokeBtn(it) } })
+        coreJobs.add(scope.launch { c.controller.repeatMode.collect { renderRepeat(it) } })
+        coreJobs.add(scope.launch { Downloads.changed.collect { onDownloadsChanged() } })
         coreJobs.add(scope.launch { c.controller.reactions.collect { react.fire(it) } })
         coreJobs.add(scope.launch { c.controller.messages.collect { msgView.show(it.first, it.second) } })
         coreJobs.add(scope.launch { c.controller.volumeEvents.collect { showVolume(it) } })
@@ -386,7 +474,7 @@ class MainActivity : Activity(), IframeHost {
         v.isFocusableInTouchMode = false
     }
 
-    private fun lbl(text: String, size: Int, color: Int = Color.WHITE, bold: Boolean = false, lines: Int = 0): TextView {
+    private fun lbl(text: String, size: Int, color: Int = TXT, bold: Boolean = false, lines: Int = 0): TextView {
         val t = TextView(this)
         t.text = text
         t.sz(size)
@@ -410,8 +498,8 @@ class MainActivity : Activity(), IframeHost {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     private fun calcCardW(): Int {
-        val n = gridCols.coerceIn(1, 3)
-        return (centerWpx - p(14 * (n - 1)) - (if (n == 3) 0 else p(8))) / n
+        val n = gridCols.coerceIn(1, 4)
+        return (centerWpx - p(14 * (n - 1)) - (if (n >= 3) 0 else p(8))) / n
     }
 
     private fun track(b: AlertDialog.Builder): AlertDialog {
@@ -427,8 +515,8 @@ class MainActivity : Activity(), IframeHost {
     private fun buildUi() {
         val dm = resources.displayMetrics
         sc = (dm.widthPixels / 1920f).coerceIn(0.4f, 2.5f)
-        val centerW = dm.widthPixels - p(64 + 400 + 520 + 32)
-        centerWpx = centerW
+        val leftW = dm.widthPixels - p(64 + 520 + 16)
+        centerWpx = leftW - p(QUEUE_W + 16)
         cardW = calcCardW()
 
         root = FrameLayout(this)
@@ -439,13 +527,13 @@ class MainActivity : Activity(), IframeHost {
         dash.setBackgroundColor(BG)
         dash.setPadding(p(32), p(16), p(32), p(24))
         root.addView(dash, FrameLayout.LayoutParams(-1, -1))
-        dash.addView(buildTopBar(), lin(-1, p(64)))
+        buildQrCardOnce()
+        dash.addView(buildTopBar(), lin(-1, p(76)))
         val body = LinearLayout(this)
         body.orientation = LinearLayout.HORIZONTAL
-        dash.addView(body, lin(-1, 0, 1f, t = 12))
-        body.addView(buildLeft(), lin(p(400), -1))
-        body.addView(buildCenter(), lin(0, -1, 1f, l = 16, r = 16))
-        body.addView(buildRight(), lin(p(520), -1))
+        dash.addView(body, lin(-1, 0, 1f, t = 8))
+        body.addView(buildCenter(), lin(0, -1, 1f))
+        body.addView(buildRight(), lin(p(520), -1, l = 16))
 
         buildVideoBox()
 
@@ -475,6 +563,23 @@ class MainActivity : Activity(), IframeHost {
         slot.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyVideoBox() }
     }
 
+
+    private fun circleBtn(icon: String, bg: Int, onClick: () -> Unit): FrameLayout {
+        val f = FrameLayout(this)
+        focusable(f, box(bg, 28), box(bg, 28, 4, CYAN))
+        f.addView(IconView(this, icon, Color.WHITE), FrameLayout.LayoutParams(p(28), p(28), Gravity.CENTER))
+        f.setOnClickListener { onClick() }
+        return f
+    }
+
+    private fun squareBtn(icon: String, onClick: () -> Unit): FrameLayout {
+        val f = FrameLayout(this)
+        focusable(f, box(PANEL, 18, 2, BORDER), box(FOCUS, 18, 3, CYAN))
+        f.addView(IconView(this, icon, TXT), FrameLayout.LayoutParams(p(28), p(28), Gravity.CENTER))
+        f.setOnClickListener { onClick() }
+        return f
+    }
+
     private fun buildTopBar(): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
@@ -483,177 +588,114 @@ class MainActivity : Activity(), IframeHost {
         // Thu nho anh nhieu buoc (chia doi dan) de vien min, khong bi rang cua nhu khi thu nho 1 lan
         val logo = ImageView(this)
         val raw = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.logo_mark)
-        var lw = p(64)
+        var lw = p(72)
         var lh = lw * raw.height / raw.width
-        if (lh > p(48)) { lh = p(48); lw = lh * raw.width / raw.height }
+        if (lh > p(54)) { lh = p(54); lw = lh * raw.width / raw.height }
         var cur = raw
         while (cur.width / 2 >= lw && cur.height / 2 >= lh) {
             cur = Bitmap.createScaledBitmap(cur, cur.width / 2, cur.height / 2, true)
         }
         logo.setImageBitmap(Bitmap.createScaledBitmap(cur, lw, lh, true))
         logo.scaleType = ImageView.ScaleType.FIT_CENTER
-        row.addView(logo, lin(lw, lh))
-        row.addView(lbl("Youtube Player", 30, Color.WHITE, true), lin(-2, -2, l = 14))
+        logo.setPadding(p(4), p(4), p(4), p(4))
+        focusable(logo, box(Color.TRANSPARENT, 16), box(FOCUS, 16, 3, CYAN))
+        logo.contentDescription = "Trang tìm kiếm"
+        logo.setOnClickListener { goHome() }
+        row.addView(logo, lin(lw + p(8), lh + p(8)))
+        val titleCol = LinearLayout(this)
+        titleCol.orientation = LinearLayout.VERTICAL
+        titleCol.addView(lbl("YOUTUBE PLAYER", 36, TXT, true), lin(-2, -2))
+        titleCol.addView(lbl("Điều khiển bằng điện thoại", 17, MUTED), lin(-2, -2))
+        row.addView(titleCol, lin(-2, -2, l = 14))
         val tag = lbl("MUSIC TV", 18, Color.WHITE, true)
         tag.background = box(RED, 8)
         tag.setPadding(p(12), p(4), p(12), p(4))
         row.addView(tag, lin(-2, -2, l = 14))
 
         remoteDot = IconView(this, "dot", 0xFF666677.toInt())
-        row.addView(remoteDot, lin(p(26), p(26), l = 40, r = 6))
+        row.addView(remoteDot, lin(p(26), p(26), l = 36, r = 6))
         remoteText = lbl("Chờ điện thoại kết nối", 22, MUTED)
         row.addView(remoteText, lin(-2, -2))
 
-        row.addView(spacer(), lin(0, 1, 1f))
-
-        // 2 nut tang/giam am luong, nam ngang hang ben trai bieu tuong wifi (bam OK tren remote TV hoac cham man hinh; giu de doi lien tuc)
-        for (up in booleanArrayOf(false, true)) {
-            val vb = FrameLayout(this)
-            vb.addView(IconView(this, if (up) "vup" else "vdown", Color.WHITE), FrameLayout.LayoutParams(p(28), p(28), Gravity.CENTER))
-            focusable(vb, box(PANEL, 24, 2, BORDER), box(0x22FFFFFF, 24, 3, CYAN))
-            vb.isClickable = true
-            val d = if (up) 5 else -5
-            vb.setOnClickListener { core?.controller?.changeVolume(d) }
-            vb.setOnLongClickListener {
-                val rep = object : Runnable {
-                    override fun run() {
-                        if (!vb.isPressed) return
-                        core?.controller?.changeVolume(d)
-                        vb.postDelayed(this, 150)
-                    }
-                }
-                vb.postDelayed(rep, 150)
-                true
-            }
-            row.addView(vb, lin(p(48), p(48), r = if (up) 18 else 10))
-        }
-
-        val chip = LinearLayout(this)
-        chip.orientation = LinearLayout.HORIZONTAL
-        chip.gravity = Gravity.CENTER_VERTICAL
-        chip.background = box(PANEL, 24, 2, BORDER)
-        chip.setPadding(p(18), p(8), p(18), p(8))
-        wifiIcon = IconView(this, "wifi", Color.WHITE)
-        chip.addView(wifiIcon, lin(p(26), p(26)))
-        wifiText = lbl("", 20, Color.WHITE)
-        chip.addView(wifiText, lin(-2, -2, l = 8))
-        row.addView(chip, lin(-2, -2, r = 28))
-
-        clock = lbl("", 28, Color.WHITE, true)
-        row.addView(clock, lin(-2, -2))
-        return row
-    }
-
-    private fun buildLeft(): View {
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-
-        val card = LinearLayout(this)
-        card.orientation = LinearLayout.VERTICAL
-        card.background = box(PANEL, 28, 2, BORDER)
-        card.setPadding(p(20), p(18), p(20), p(16))
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = Gravity.CENTER_VERTICAL
-        head.addView(lbl("QUÉT KẾT NỐI\nREMOTE", 20, Color.WHITE, true), lin(0, -2, 1f))
-        portPill = lbl("", 16, GREEN, true)
-        portPill.background = box(0x222ECC71, 20, 2, GREEN)
-        portPill.setPadding(p(10), p(6), p(10), p(6))
-        head.addView(portPill, lin(-2, -2))
-        // Nut An/Hien ma QR nam ben phai o hien thi cong
-        qrToggle = lbl("Ẩn", 18, Color.WHITE, true)
-        qrToggle.gravity = Gravity.CENTER
-        qrToggle.setPadding(p(14), p(6), p(14), p(6))
-        focusable(qrToggle, box(0xFF2A2A38.toInt(), 20, 2, 0xFF44445A.toInt()), box(0x33FFFFFF, 20, 3, CYAN))
-        qrToggle.setOnClickListener {
-            val c = core ?: return@setOnClickListener
-            c.settings.qrHidden = !c.settings.qrHidden
-            applyQrHidden(c.settings.qrHidden)
-        }
-        head.addView(qrToggle, lin(-2, -2, l = 8))
-        card.addView(head, lin(-1, -2))
-        qrBody = LinearLayout(this)
-        qrBody.orientation = LinearLayout.VERTICAL
-        card.addView(qrBody, lin(-1, -2))
-        qrImg = ImageView(this)
-        qrImg.scaleType = ImageView.ScaleType.FIT_XY
-        qrImg.background = box(Color.WHITE, 16)
-        val qlp = lin(p(270), p(270), t = 12)
-        qlp.gravity = Gravity.CENTER_HORIZONTAL
-        qrBody.addView(qrImg, qlp)
-        qrCap = lbl("Mở camera quét để điều khiển", 19, Color.WHITE, true, 1)
-        qrCap.gravity = Gravity.CENTER
-        qrBody.addView(qrCap, lin(-1, -2, t = 12))
-        qrUrl = lbl("", 16, MUTED, false, 1)
-        qrUrl.gravity = Gravity.CENTER
-        qrBody.addView(qrUrl, lin(-1, -2, t = 2))
-        col.addView(card, lin(-1, -2))
-
-        val add = LinearLayout(this)
-        add.orientation = LinearLayout.HORIZONTAL
-        add.gravity = Gravity.CENTER
-        val dashed = GradientDrawable()
-        dashed.setColor(Color.TRANSPARENT)
-        dashed.cornerRadius = p(22).toFloat()
-        dashed.setStroke(maxOf(1, p(2)), 0xFF3A3A4C.toInt(), p(8).toFloat(), p(6).toFloat())
-        focusable(add, dashed, box(0x22FFFFFF, 22, 3, CYAN))
-        add.addView(IconView(this, "plus", Color.WHITE), lin(p(28), p(28)))
-        add.addView(lbl("Tạo Thể Loại Mới", 24, Color.WHITE), lin(-2, -2, l = 10))
-        add.setOnClickListener { createCategoryDialog() }
-        col.addView(add, lin(-1, p(64), t = 16))
-
+        // Nut yeu thich / thu vien da tai / tai xuong
         favBtn = LinearLayout(this)
         favBtn.orientation = LinearLayout.HORIZONTAL
         favBtn.gravity = Gravity.CENTER
         favBtn.addView(IconView(this, "heart", Color.WHITE), lin(p(28), p(28)))
-        favBtn.addView(lbl("Yêu Thích", 24, Color.WHITE, true), lin(-2, -2, l = 10))
         favBtn.setOnClickListener { showFavorites() }
         updateFavBtn()
-        col.addView(favBtn, lin(-1, p(64), t = 10))
+        row.addView(favBtn, lin(p(56), p(56), l = 28))
+        row.addView(circleBtn("folder", 0xFF2E7D32.toInt()) { showLocal() }, lin(p(56), p(56), l = 12))
+        val dlWrap = circleBtn("download", 0xFF00897B.toInt()) { showDownloads() }
+        dlBadge = lbl("0", 14, Color.WHITE, true)
+        dlBadge.gravity = Gravity.CENTER
+        dlBadge.background = box(RED, 11)
+        dlBadge.visibility = View.GONE
+        dlWrap.addView(dlBadge, FrameLayout.LayoutParams(p(22), p(22), Gravity.TOP or Gravity.END))
+        row.addView(dlWrap, lin(p(56), p(56), l = 12))
 
-        col.addView(lbl("DANH MỤC ÂM NHẠC", 18, MUTED, true), lin(-2, -2, l = 8, t = 20, b = 8))
-        val sv = ScrollView(this)
-        sv.isVerticalScrollBarEnabled = false
-        catBox = LinearLayout(this)
-        catBox.orientation = LinearLayout.VERTICAL
-        sv.addView(catBox, FrameLayout.LayoutParams(-1, -2))
-        col.addView(sv, lin(-1, 0, 1f))
+        row.addView(spacer(), lin(0, 1, 1f))
 
-        val foot = LinearLayout(this)
-        foot.orientation = LinearLayout.HORIZONTAL
-        foot.gravity = Gravity.CENTER_VERTICAL
-        val dot = IconView(this, "dot", GREEN)
-        foot.addView(dot, lin(p(18), p(18)))
-        qualText = lbl("", 18, MUTED, false, 1)
-        foot.addView(qualText, lin(0, -2, 1f, l = 8))
-        val gear = LinearLayout(this)
-        gear.orientation = LinearLayout.HORIZONTAL
-        gear.gravity = Gravity.CENTER
-        gear.setPadding(p(16), p(8), p(16), p(8))
-        focusable(gear, box(PANEL, 16, 2, BORDER), box(0x22FFFFFF, 16, 3, CYAN))
-        gear.addView(IconView(this, "gear", Color.WHITE), lin(p(24), p(24)))
-        gear.addView(lbl("Cài đặt", 18, Color.WHITE), lin(-2, -2, l = 8))
-        gear.setOnClickListener { showSettings() }
-        foot.addView(gear, lin(-2, -2))
-        col.addView(foot, lin(-1, -2, t = 10))
-        return col
+        row.addView(squareBtn("qr") { showQr() }, lin(p(56), p(56), r = 12))
+        row.addView(squareBtn("gear") { showSettings() }, lin(p(56), p(56), r = 12))
+        row.addView(squareBtn(if (dark) "sun" else "moon") { toggleTheme() }, lin(p(56), p(56), r = 18))
+
+        val chip = LinearLayout(this)
+        chip.orientation = LinearLayout.HORIZONTAL
+        chip.gravity = Gravity.CENTER_VERTICAL
+        chip.background = box(PANEL, 28, 2, BORDER)
+        chip.setPadding(p(18), p(8), p(18), p(8))
+        wifiIcon = IconView(this, "wifi", TXT)
+        chip.addView(wifiIcon, lin(p(26), p(26)))
+        wifiText = lbl("", 20, TXT)
+        chip.addView(wifiText, lin(-2, -2, l = 8))
+        row.addView(chip, lin(-2, p(56), r = 28))
+
+        clock = lbl("", 30, TXT, true)
+        row.addView(clock, lin(-2, -2))
+        return row
     }
 
-    private fun hintChip(key: String, text: String): View {
-        val r = LinearLayout(this)
-        r.orientation = LinearLayout.HORIZONTAL
-        r.gravity = Gravity.CENTER_VERTICAL
-        val k = lbl(key, 15, Color.WHITE, true)
-        k.background = box(0xFF2A2A38.toInt(), 6, 2, 0xFF44445A.toInt())
-        k.setPadding(p(8), p(2), p(8), p(2))
-        r.addView(k, lin(-2, -2))
-        r.addView(lbl(text, 18, MUTED), lin(-2, -2, l = 6, r = 10))
-        return r
+
+
+    /** The QR card (shown in a dialog from the QR button in the header). Views are updated by updateQr() every second. */
+    private fun buildQrCard(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(lbl("QUÉT KẾT NỐI REMOTE", 24, TXT, true), lin(0, -2, 1f))
+        portPill = lbl("", 16, GREEN, true)
+        portPill.background = box(0x222ECC71, 20, 2, GREEN)
+        portPill.setPadding(p(10), p(6), p(10), p(6))
+        head.addView(portPill, lin(-2, -2))
+        card.addView(head, lin(-1, -2))
+        qrImg = ImageView(this)
+        qrImg.scaleType = ImageView.ScaleType.FIT_XY
+        qrImg.background = box(Color.WHITE, 16)
+        val qlp = lin(p(300), p(300), t = 16)
+        qlp.gravity = Gravity.CENTER_HORIZONTAL
+        card.addView(qrImg, qlp)
+        qrCap = lbl("Mở camera quét để điều khiển", 20, TXT, true, 1)
+        qrCap.gravity = Gravity.CENTER
+        card.addView(qrCap, lin(-1, -2, t = 14))
+        qrUrl = lbl("", 17, MUTED, false, 1)
+        qrUrl.gravity = Gravity.CENTER
+        card.addView(qrUrl, lin(-1, -2, t = 2))
+        return card
     }
+
+
+
+
+
 
     private fun buildCenter(): View {
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
+        catBox = LinearLayout(this)
+        catBox.orientation = LinearLayout.VERTICAL
 
         val barRow = LinearLayout(this)
         barRow.orientation = LinearLayout.HORIZONTAL
@@ -661,7 +703,7 @@ class MainActivity : Activity(), IframeHost {
 
         val mic = FrameLayout(this)
         focusable(mic, box(RED, 34, 2, 0x55FFFFFF), box(RED, 34, 4, CYAN))
-        val micIc = IconView(this, "mic", Color.WHITE)
+        val micIc = IconView(this, "mic", TXT)
         mic.addView(micIc, FrameLayout.LayoutParams(p(30), p(30), Gravity.CENTER))
         mic.setOnClickListener { startVoice() }
         barRow.addView(mic, lin(p(68), p(68)))
@@ -670,12 +712,12 @@ class MainActivity : Activity(), IframeHost {
         searchField.orientation = LinearLayout.HORIZONTAL
         searchField.gravity = Gravity.CENTER_VERTICAL
         searchField.background = box(PANEL2, 36, 3, RED)
-        searchField.setPadding(p(22), 0, p(16), 0)
-        searchField.addView(IconView(this, "search", Color.WHITE), lin(p(30), p(30)))
+        searchField.setPadding(p(22), 0, p(10), 0)
+        searchField.addView(IconView(this, "search", TXT), lin(p(30), p(30)))
         searchEt = EditText(this)
         searchEt.background = null
-        searchEt.setTextColor(Color.WHITE)
-        searchEt.setHintTextColor(0xFFB4B4C8.toInt())
+        searchEt.setTextColor(TXT)
+        searchEt.setHintTextColor(MUTED)
         searchEt.hint = "Nhập tên bài hát, ca sĩ hoặc dán link YouTube"
         searchEt.sz(26)
         searchEt.setSingleLine(true)
@@ -698,8 +740,30 @@ class MainActivity : Activity(), IframeHost {
             searchField.background = if (f) box(PANEL, 36, 4, CYAN) else box(PANEL2, 36, 3, RED)
         }
         searchField.addView(searchEt, lin(0, -1, 1f, l = 6))
-        searchField.addView(hintChip("OK", "Chọn"), lin(-2, -2))
-        searchField.addView(hintChip("MENU", "Ưu tiên"), lin(-2, -2))
+
+        // Nut TIM
+        val goBtn = lbl("TÌM", 24, TXT, true)
+        goBtn.gravity = Gravity.CENTER
+        goBtn.setPadding(p(28), 0, p(28), 0)
+        focusable(goBtn, box(BTN, 26, 2, BTN_BORDER), box(FOCUS2, 26, 3, CYAN))
+        goBtn.setOnClickListener {
+            doTvSearch(searchEt.text.toString())
+            hideIme()
+        }
+        searchField.addView(goBtn, lin(-2, p(52), l = 8))
+
+        // Nut Danh Muc (mo danh sach the loai)
+        val catBtn = LinearLayout(this)
+        catBtn.orientation = LinearLayout.HORIZONTAL
+        catBtn.gravity = Gravity.CENTER
+        catBtn.setPadding(p(20), 0, p(16), 0)
+        focusable(catBtn, box(RED, 26), box(RED, 26, 3, CYAN))
+        catBtn.addView(IconView(this, "folder", TXT), lin(p(24), p(24)))
+        catBtn.addView(lbl("Danh Mục", 24, TXT, true), lin(-2, -2, l = 8))
+        catBtn.addView(IconView(this, "chevron", TXT), lin(p(22), p(22), l = 4))
+        catBtnView = catBtn
+        catBtn.setOnClickListener { showCatMenu() }
+        searchField.addView(catBtn, lin(-2, p(52), l = 8))
         barRow.addView(searchField, lin(0, p(68), 1f, l = 14))
 
         // Nut bat/tat che do karaoke (dung chung voi remote dien thoai)
@@ -708,7 +772,7 @@ class MainActivity : Activity(), IframeHost {
         karaokeBtn.gravity = Gravity.CENTER
         karaokeBtn.setPadding(p(22), 0, p(22), 0)
         karaokeDot = View(this)
-        karaokeLbl = lbl("Karaoke", 24, Color.WHITE, true, 1)
+        karaokeLbl = lbl("Karaoke", 24, TXT, true, 1)
         karaokeBtn.addView(karaokeDot, lin(p(14), p(14), r = 10))
         karaokeBtn.addView(karaokeLbl, lin(-2, -2))
         karaokeBtn.setOnClickListener { toggleKaraokeFromTv() }
@@ -716,9 +780,14 @@ class MainActivity : Activity(), IframeHost {
         barRow.addView(karaokeBtn, lin(-2, p(68), l = 14))
         col.addView(barRow, lin(-1, p(68)))
 
-        status = lbl("", 20, MUTED, false, 1)
-        col.addView(status, lin(-1, -2, l = 8, t = 12, b = 4))
+        val mid = LinearLayout(this)
+        mid.orientation = LinearLayout.HORIZONTAL
+        col.addView(mid, lin(-1, 0, 1f, t = 8))
 
+        val gcol = LinearLayout(this)
+        gcol.orientation = LinearLayout.VERTICAL
+        status = lbl("", 20, MUTED, false, 1)
+        gcol.addView(status, lin(-1, -2, l = 8, t = 6, b = 6))
         val sv = ScrollView(this)
         sv.isVerticalScrollBarEnabled = false
         sv.clipToPadding = false
@@ -726,88 +795,22 @@ class MainActivity : Activity(), IframeHost {
         gridBox.orientation = LinearLayout.VERTICAL
         gridBox.setPadding(p(4), p(6), p(4), p(20))
         sv.addView(gridBox, FrameLayout.LayoutParams(-1, -2))
-        col.addView(sv, lin(-1, 0, 1f))
+        gcol.addView(sv, lin(-1, 0, 1f))
+        mid.addView(gcol, lin(0, -1, 1f))
+        mid.addView(buildQueue(), lin(p(QUEUE_W), -1, l = 16))
         return col
     }
 
-    private fun ctrlBtn(icon: String, label: String, red: Boolean, onClick: () -> Unit): Pair<View, IconView> {
-        val b = LinearLayout(this)
-        b.orientation = LinearLayout.VERTICAL
-        b.gravity = Gravity.CENTER
-        focusable(
-            b,
-            if (red) box(RED, 22) else box(PANEL2, 22, 2, BORDER),
-            box(if (red) RED else 0xFF26263A.toInt(), 22, 4, CYAN)
-        )
-        val ic = IconView(this, icon, Color.WHITE)
-        b.addView(ic, lin(p(34), p(34)))
-        b.addView(lbl(label, 18, Color.WHITE, true, 1), lin(-2, -2, t = 6))
-        b.setOnClickListener { onClick() }
-        return Pair(b, ic)
-    }
-
-    private fun buildRight(): View {
-        val col = LinearLayout(this)
-        col.orientation = LinearLayout.VERTICAL
-
-        val now = LinearLayout(this)
-        now.orientation = LinearLayout.VERTICAL
-        now.background = box(PANEL, 28, 2, BORDER)
-        now.setPadding(p(20), p(16), p(20), p(18))
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.HORIZONTAL
-        head.gravity = Gravity.CENTER_VERTICAL
-        head.addView(IconView(this, "dot", RED), lin(p(24), p(24)))
-        head.addView(lbl("ĐANG PHÁT", 22, Color.WHITE, true), lin(-2, -2, l = 6))
-        head.addView(spacer(), lin(0, 1, 1f))
-        head.addView(IconView(this, "eq", RED), lin(p(26), p(26)))
-        now.addView(head, lin(-1, -2))
-
-        slot = View(this)
-        now.addView(slot, lin(-1, p(270), t = 12))
-
-        titleTv = lbl("Chưa có bài hát", 26, Color.WHITE, true, 1)
-        now.addView(titleTv, lin(-1, -2, t = 12))
-        subTv = lbl("", 20, MUTED, false, 1)
-        now.addView(subTv, lin(-1, -2, t = 2))
-
-        val prog = LinearLayout(this)
-        prog.orientation = LinearLayout.HORIZONTAL
-        prog.gravity = Gravity.CENTER_VERTICAL
-        timeL = lbl("00:00", 18, MUTED)
-        timeR = lbl("00:00", 18, MUTED)
-        bar = BarView(this)
-        prog.addView(timeL, lin(-2, -2))
-        prog.addView(bar, lin(0, p(8), 1f, l = 12, r = 12))
-        prog.addView(timeR, lin(-2, -2))
-        now.addView(prog, lin(-1, -2, t = 12))
-
-        val ctr = LinearLayout(this)
-        ctr.orientation = LinearLayout.HORIZONTAL
-        val b1 = ctrlBtn("rew", "Lùi 10s", false) { core?.controller?.seekTo(null, -10_000L) }
-        val b2 = ctrlBtn("pause", "Phát / Dừng", true) {
-            val c = core ?: return@ctrlBtn
-            if (lastUi.state == PState.PAUSED) c.controller.resume() else c.controller.pause()
-        }
-        playIcon = b2.second
-        val b3 = ctrlBtn("next", "Bài tiếp", false) { core?.controller?.skip() }
-        val b4 = ctrlBtn("ff", "Tua 10s", false) { core?.controller?.seekTo(null, 10_000L) }
-        ctr.addView(b1.first, lin(0, p(92), 1f, r = 8))
-        ctr.addView(b2.first, lin(0, p(92), 1.2f, r = 8))
-        ctr.addView(b3.first, lin(0, p(92), 1f, r = 8))
-        ctr.addView(b4.first, lin(0, p(92), 1f))
-        now.addView(ctr, lin(-1, -2, t = 14))
-        col.addView(now, lin(-1, -2))
-
+    private fun buildQueue(): View {
         val q = LinearLayout(this)
         q.orientation = LinearLayout.VERTICAL
         q.background = box(PANEL, 28, 2, BORDER)
-        q.setPadding(p(20), p(16), p(20), p(14))
+        q.setPadding(p(18), p(16), p(18), p(14))
         val qh = LinearLayout(this)
         qh.orientation = LinearLayout.HORIZONTAL
         qh.gravity = Gravity.CENTER_VERTICAL
-        qh.addView(lbl("HÀNG ĐỢI TIẾP THEO", 22, Color.WHITE, true), lin(0, -2, 1f))
-        queueCount = lbl("0 bài", 18, Color.WHITE, true)
+        qh.addView(lbl("HÀNG ĐỢI TIẾP THEO", 24, TXT, true), lin(0, -2, 1f))
+        queueCount = lbl("0 bài", 18, TXT, true)
         queueCount.background = box(PANEL2, 18)
         queueCount.setPadding(p(14), p(4), p(14), p(4))
         qh.addView(queueCount, lin(-2, -2))
@@ -823,18 +826,168 @@ class MainActivity : Activity(), IframeHost {
         qf.gravity = Gravity.CENTER_VERTICAL
         queueTotal = lbl("", 18, MUTED, false, 1)
         qf.addView(queueTotal, lin(0, -2, 1f))
-        val addSong = lbl("Thêm bài hát", 20, RED, true)
-        focusable(addSong, box(Color.TRANSPARENT, 14), box(0x22FFFFFF, 14, 3, CYAN))
-        addSong.setPadding(p(14), p(6), p(14), p(6))
-        addSong.setOnClickListener {
-            searchEt.requestFocus()
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(searchEt, 0)
-        }
-        qf.addView(addSong, lin(-2, -2))
+        val paste = lbl("Dán Link", 22, RED, true)
+        focusable(paste, box(Color.TRANSPARENT, 14), box(FOCUS, 14, 3, CYAN))
+        paste.setPadding(p(14), p(6), p(14), p(6))
+        paste.setOnClickListener { showPasteLink() }
+        qf.addView(paste, lin(-2, -2))
         q.addView(qf, lin(-1, -2, t = 8))
-        col.addView(q, lin(-1, 0, 1f, t = 16))
-        return col
+        return q
     }
+
+    private fun qBtn(icon: String, red: Boolean, qi: QueueItem, enabled: Boolean, onClick: () -> Unit): View {
+        val b = FrameLayout(this)
+        focusable(
+            b,
+            if (red) box(RED, 14) else box(PANEL2, 14, 2, BORDER),
+            box(if (red) RED else BTN2, 14, 3, CYAN)
+        )
+        b.addView(IconView(this, icon, if (red) Color.WHITE else TXT), FrameLayout.LayoutParams(p(24), p(24), Gravity.CENTER))
+        b.alpha = if (enabled) 1f else 0.35f
+        b.tag = QueueTag(qi)
+        b.setOnClickListener { if (enabled) onClick() }
+        return b
+    }
+
+
+
+
+
+
+    private fun tbtn(icon: String, red: Boolean, onClick: () -> Unit): Pair<FrameLayout, IconView> {
+        val b = FrameLayout(this)
+        focusable(
+            b,
+            if (red) box(RED, 24) else box(PANEL2, 24, 2, BORDER),
+            box(if (red) RED else BTN2, 24, 4, CYAN)
+        )
+        val ic = IconView(this, icon, if (red) Color.WHITE else TXT)
+        b.addView(ic, FrameLayout.LayoutParams(p(30), p(30), Gravity.CENTER))
+        b.setOnClickListener { onClick() }
+        return Pair(b, ic)
+    }
+
+    private fun volBtn(up: Boolean): View {
+        val vb = FrameLayout(this)
+        vb.addView(IconView(this, if (up) "vup" else "vdown", TXT), FrameLayout.LayoutParams(p(28), p(28), Gravity.CENTER))
+        focusable(vb, box(PANEL2, 20, 2, BORDER), box(FOCUS, 20, 3, CYAN))
+        val d = if (up) 5 else -5
+        vb.setOnClickListener { core?.controller?.changeVolume(d) }
+        vb.setOnLongClickListener {
+            val rep = object : Runnable {
+                override fun run() {
+                    if (!vb.isPressed) return
+                    core?.controller?.changeVolume(d)
+                    vb.postDelayed(this, 150)
+                }
+            }
+            vb.postDelayed(rep, 150)
+            true
+        }
+        return vb
+    }
+
+    private fun renderRepeat(m: Int) {
+        if (!::repeatIcon.isInitialized) return
+        repeatIcon.set(if (m == 1) "repeat1" else "repeat", if (m == 0) MUTED else RED)
+        focusable(
+            repeatBtn,
+            if (m == 0) box(PANEL2, 24, 2, BORDER) else box(0x33FF1744, 24, 2, RED),
+            box(BTN2, 24, 4, CYAN)
+        )
+    }
+
+    private fun buildRight(): View {
+        val now = LinearLayout(this)
+        now.orientation = LinearLayout.VERTICAL
+        now.background = box(PANEL, 28, 2, BORDER)
+        now.setPadding(p(20), p(16), p(20), p(18))
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(IconView(this, "dot", RED), lin(p(24), p(24)))
+        head.addView(lbl("ĐANG PHÁT", 24, TXT, true), lin(-2, -2, l = 6))
+        head.addView(spacer(), lin(0, 1, 1f))
+        head.addView(IconView(this, "eq", RED), lin(p(26), p(26)))
+        now.addView(head, lin(-1, -2))
+
+        slot = View(this)
+        now.addView(slot, lin(-1, p(270), t = 12))
+
+        titleTv = lbl("Chưa có bài hát", 30, TXT, true, 1)
+        now.addView(titleTv, lin(-1, -2, t = 14))
+        subTv = lbl("", 22, MUTED, false, 1)
+        now.addView(subTv, lin(-1, -2, t = 2))
+
+        val prog = LinearLayout(this)
+        prog.orientation = LinearLayout.HORIZONTAL
+        prog.gravity = Gravity.CENTER_VERTICAL
+        timeL = lbl("00:00", 19, MUTED)
+        timeR = lbl("00:00", 19, MUTED)
+        bar = BarView(this)
+        bar.trackColor = BTN
+        prog.addView(timeL, lin(-2, -2))
+        prog.addView(bar, lin(0, p(8), 1f, l = 12, r = 12))
+        prog.addView(timeR, lin(-2, -2))
+        now.addView(prog, lin(-1, -2, t = 12))
+
+        // 6 nut: lui 10s | phat/dung | bai tiep | tua 10s | phat lai tu dau | lap lai
+        val ctr = LinearLayout(this)
+        ctr.orientation = LinearLayout.HORIZONTAL
+        val b1 = tbtn("rew", false) { core?.controller?.seekTo(null, -10_000L) }
+        val b2 = tbtn("pause", true) {
+            val c = core ?: return@tbtn
+            if (lastUi.state == PState.PAUSED) c.controller.resume() else c.controller.pause()
+        }
+        playIcon = b2.second
+        val b3 = tbtn("next", false) { core?.controller?.skip() }
+        val b4 = tbtn("ff", false) { core?.controller?.seekTo(null, 10_000L) }
+        val b5 = tbtn("replay", false) {
+            core?.controller?.restart()
+            toast("Phát lại từ đầu")
+        }
+        val b6 = tbtn("repeat", false) {
+            val m = core?.controller?.cycleRepeat() ?: 0
+            toast(when (m) { 1 -> "Lặp lại: 1 BÀI"; 2 -> "Lặp lại: CẢ HÀNG ĐỢI"; else -> "Lặp lại: TẮT" })
+        }
+        repeatBtn = b6.first
+        repeatIcon = b6.second
+        val bs = listOf(b1.first, b2.first, b3.first, b4.first, b5.first, b6.first)
+        bs.forEachIndexed { i, v -> ctr.addView(v, lin(0, p(76), 1f, r = if (i < bs.size - 1) 8 else 0)) }
+        now.addView(ctr, lin(-1, -2, t = 16))
+        renderRepeat(0)
+
+        // Am luong: [-] ---o--- [+]
+        val vr = LinearLayout(this)
+        vr.orientation = LinearLayout.HORIZONTAL
+        vr.gravity = Gravity.CENTER_VERTICAL
+        vr.addView(volBtn(false), lin(p(60), p(60)))
+        volSlider = SliderView(this)
+        volSlider.trackColor = BTN
+        volSlider.knobColor = TXT
+        focusable(volSlider, box(Color.TRANSPARENT, 16), box(FOCUS, 16, 3, CYAN))
+        volSlider.setOnKeyListener { _, k, ev ->
+            if (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (ev.action == KeyEvent.ACTION_DOWN) core?.controller?.changeVolume(if (k == KeyEvent.KEYCODE_DPAD_RIGHT) 5 else -5)
+                true
+            } else false
+        }
+        volSlider.setOnTouchListener { v, ev ->
+            if (ev.action == MotionEvent.ACTION_DOWN || ev.action == MotionEvent.ACTION_MOVE) {
+                core?.controller?.setVolumeAbs((ev.x / v.width.coerceAtLeast(1) * 100).toInt())
+                true
+            } else false
+        }
+        vr.addView(volSlider, lin(0, p(60), 1f, l = 12, r = 12))
+        vr.addView(volBtn(true), lin(p(60), p(60)))
+        now.addView(vr, lin(-1, -2, t = 16))
+
+        qualText = lbl("", 18, MUTED, false, 1)
+        qualText.gravity = Gravity.CENTER
+        now.addView(qualText, lin(-1, -2, t = 14))
+        return now
+    }
+
 
     private fun buildVideoBox() {
         videoBox = FrameLayout(this)
@@ -856,7 +1009,7 @@ class MainActivity : Activity(), IframeHost {
         rlp.setMargins(p(12), p(12), 0, 0)
         videoBox.addView(resTag, rlp)
 
-        nowBadge = lbl("NOW PLAYING", 16, Color.WHITE, true)
+        nowBadge = lbl("ĐANG PHÁT", 16, Color.WHITE, true)
         nowBadge.background = box(RED, 8)
         nowBadge.setPadding(p(10), p(3), p(10), p(3))
         val nlp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END)
@@ -984,7 +1137,7 @@ class MainActivity : Activity(), IframeHost {
         }
         idle.text = msg ?: ""
         idle.visibility = if (msg != null) View.VISIBLE else View.GONE
-        nowBadge.text = if (u.state == PState.PAUSED) "ĐANG TẠM DỪNG" else "NOW PLAYING"
+        nowBadge.text = if (u.state == PState.PAUSED) "ĐANG TẠM DỪNG" else "ĐANG PHÁT"
         playIcon.set(if (u.state == PState.PAUSED) "play" else "pause")
 
         titleTv.text = u.nowTitle ?: "Chưa có bài hát"
@@ -992,6 +1145,7 @@ class MainActivity : Activity(), IframeHost {
         if (u.state == PState.IDLE) exitFullscreen()
         refreshQueue()
     }
+
 
     private fun refreshQueue() {
         val c = core ?: return
@@ -1008,11 +1162,16 @@ class MainActivity : Activity(), IframeHost {
         }
         if (sig == lastQueueSig) return
         lastQueueSig = sig
-        var fIdx = -1
-        for (i in 0 until queueBox.childCount) if (queueBox.getChildAt(i).hasFocus()) fIdx = i
+        // Nho nut dang giu tieu diem (hang, nut) de tra lai sau khi ve lai danh sach
+        var fr = -1
+        var fb = 0
+        queueBtns.forEachIndexed { r, btns -> btns.forEachIndexed { b, v -> if (v.hasFocus()) { fr = r; fb = b } } }
+        val want = pendingQFocus
+        pendingQFocus = null
         queueBox.removeAllViews()
+        queueBtns.clear()
         if (items.isEmpty()) {
-            val e = lbl("Chưa có bài nào chờ.\nChọn bài ở giữa hoặc dùng điện thoại để thêm.", 19, MUTED)
+            val e = lbl("Chưa có bài nào chờ.\nChọn bài ở bên trái, dán link hoặc dùng điện thoại để thêm.", 19, MUTED)
             e.setPadding(p(8), p(20), p(8), 0)
             queueBox.addView(e, lin(-1, -2))
             return
@@ -1020,33 +1179,62 @@ class MainActivity : Activity(), IframeHost {
         items.forEachIndexed { i, qi ->
             val row = LinearLayout(this)
             row.orientation = LinearLayout.HORIZONTAL
-            row.gravity = Gravity.CENTER_VERTICAL
-            row.setPadding(p(12), p(8), p(12), p(8))
-            focusable(row, box(0x00000000, 18), box(0xFF1A2230.toInt(), 18, 3, CYAN))
-            row.addView(lbl("${i + 1}", 20, MUTED, true), lin(p(26), -2))
+            row.gravity = Gravity.TOP
+            row.setPadding(p(8), p(8), p(8), p(8))
+            row.background = box(0x00000000, 18)
+            row.addView(lbl("${i + 1}", 22, MUTED, true), lin(p(30), -2, t = 4))
             val iv = ImageView(this)
             iv.scaleType = ImageView.ScaleType.CENTER_CROP
-            iv.setBackgroundColor(0xFF1B1B26.toInt())
+            iv.setBackgroundColor(THUMB)
             Img.load(iv, Util.thumb(qi.videoId))
-            row.addView(iv, lin(p(116), p(66), l = 4))
+            row.addView(iv, lin(p(100), p(56)))
             val info = LinearLayout(this)
             info.orientation = LinearLayout.VERTICAL
-            info.addView(lbl(qi.title, 21, Color.WHITE, true, 1), lin(-1, -2))
+            info.addView(lbl(qi.title, 22, TXT, true, 1), lin(-1, -2))
             info.addView(
-                lbl(if (qi.addedBy.isNullOrBlank()) "Tự động đề xuất" else "Yêu cầu từ: ${qi.addedBy}", 17, MUTED, false, 1),
+                lbl(
+                    (if (qi.addedBy.isNullOrBlank()) "Tự động đề xuất" else "Yêu cầu từ: ${qi.addedBy}") +
+                        (if (qi.durationSec > 0) " · ${mmss(qi.durationSec * 1000L)}" else ""),
+                    18, MUTED, false, 1
+                ),
                 lin(-1, -2, t = 2)
             )
-            row.addView(info, lin(0, -2, 1f, l = 14))
-            if (qi.durationSec > 0) row.addView(lbl(mmss(qi.durationSec * 1000L), 17, MUTED), lin(-2, -2, l = 8))
-            row.tag = QueueTag(qi)
+            val btnRow = LinearLayout(this)
+            btnRow.orientation = LinearLayout.HORIZONTAL
+            val bPlay = qBtn("play", true, qi, true) { playQueueItem(qi) }
+            val bUp = qBtn("up", false, qi, i > 0) {
+                pendingQFocus = Pair(i - 1, 1)
+                moveQueueItem(qi, i - 1)
+            }
+            val bDown = qBtn("down", false, qi, i < items.size - 1) {
+                pendingQFocus = Pair(i + 1, 2)
+                moveQueueItem(qi, i + 1)
+            }
+            val bDel = qBtn("trash", false, qi, true) { removeQueueItem(qi) }
+            val all = listOf(bPlay, bUp, bDown, bDel)
+            all.forEachIndexed { k, v -> btnRow.addView(v, lin(p(52), p(42), r = if (k < all.size - 1) 8 else 0)) }
+            info.addView(btnRow, lin(-2, -2, t = 8))
+            row.addView(info, lin(0, -2, 1f, l = 12))
             row.setOnClickListener { playQueueItem(qi) }
-            row.setOnLongClickListener { removeQueueItem(qi); true }
+            row.isFocusable = false
             queueBox.addView(row, lin(-1, -2, b = 6))
+            queueBtns.add(ArrayList(all))
         }
-        if (fIdx >= 0 && queueBox.childCount > 0) {
-            queueBox.getChildAt(minOf(fIdx, queueBox.childCount - 1)).requestFocus()
+        val tgt = want ?: if (fr >= 0) Pair(fr, fb) else null
+        if (tgt != null && queueBtns.isNotEmpty()) {
+            val r = tgt.first.coerceIn(0, queueBtns.size - 1)
+            queueBtns[r].getOrNull(tgt.second)?.requestFocus()
         }
     }
+
+    private fun moveQueueItem(item: QueueItem, newIndex: Int) {
+        try {
+            core?.controller?.reorder(item.itemId, newIndex)
+        } catch (e: ApiError) {
+            pendingQFocus = null
+        }
+    }
+
 
     private fun playQueueItem(item: QueueItem) {
         try {
@@ -1077,7 +1265,7 @@ class MainActivity : Activity(), IframeHost {
         status.text = when {
             sv.loading && sv.results.isEmpty() -> if (isPlQ) "Đang mở danh sách phát…" else "Đang tìm “$dq”…"
             sv.error != null && sv.results.isEmpty() -> "Không tìm được: ${sv.error}"
-            sv.query.isEmpty() -> "Chọn thể loại bên trái hoặc gõ tên bài hát để tìm"
+            sv.query.isEmpty() -> "Bấm Danh Mục hoặc gõ tên bài hát để tìm"
             sv.results.isEmpty() -> "Không có kết quả cho “$dq”"
             else -> (if (isPlQ) "Danh sách phát “$dq” · BACK để quay lại" else "Kết quả cho “$dq”") +
                 (if (sv.source == "remote") " · từ điện thoại" else "") +
@@ -1125,7 +1313,7 @@ class MainActivity : Activity(), IframeHost {
 
     /** Doi so bai tren moi hang (1/2/3) roi ve lai luoi ket qua. */
     private fun applyGridCols(n: Int) {
-        gridCols = n.coerceIn(1, 3)
+        gridCols = n.coerceIn(1, 4)
         cardW = calcCardW()
         shownQuery = ""; shownCount = 0; shownFirst = null
         gridBox.removeAllViews()
@@ -1139,12 +1327,12 @@ class MainActivity : Activity(), IframeHost {
         c.orientation = if (horiz) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         if (horiz) c.gravity = Gravity.CENTER_VERTICAL
         c.setPadding(p(8), p(8), p(8), p(10))
-        focusable(c, box(PANEL, 18, 2, BORDER), box(0xFF1A2230.toInt(), 18, 4, CYAN))
+        focusable(c, box(PANEL, 18, 2, BORDER), box(FOCUS_CARD, 18, 4, CYAN))
         val tw = if (horiz) p(300) else cardW - p(16)
         val th = FrameLayout(this)
         val iv = ImageView(this)
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
-        iv.setBackgroundColor(0xFF1B1B26.toInt())
+        iv.setBackgroundColor(THUMB)
         th.addView(iv, FrameLayout.LayoutParams(-1, -1))
         val isPl = h.kind == "playlist"
         if (h.durationSec > 0 || isPl) {
@@ -1169,17 +1357,30 @@ class MainActivity : Activity(), IframeHost {
             tlp.setMargins(p(8), p(8), 0, 0)
             th.addView(tagPl, tlp)
         }
+        if (!isPl) {
+            val dv = FrameLayout(this)
+            dv.background = box(0xCC000000.toInt(), 20, 2, 0x55FFFFFF)
+            val di = IconView(this, "download", Color.WHITE)
+            di.tag = "dlicon"
+            dv.addView(di, FrameLayout.LayoutParams(p(22), p(22), Gravity.CENTER))
+            dv.setOnClickListener { downloadHit(h) }
+            dv.isFocusable = false
+            val dlp = FrameLayout.LayoutParams(p(40), p(40), Gravity.TOP or Gravity.END)
+            dlp.setMargins(0, p(8), p(8), 0)
+            th.addView(dv, dlp)
+            markDl(di, h.videoId)
+        }
         c.addView(th, LinearLayout.LayoutParams(tw, tw * 9 / 16))
         if (horiz) {
             // 1 bai/hang: thumbnail ben trai, chu ben phai (khong keo thumbnail qua to)
             val tcol = LinearLayout(this)
             tcol.orientation = LinearLayout.VERTICAL
             tcol.gravity = Gravity.CENTER_VERTICAL
-            tcol.addView(lbl(h.title, 26, Color.WHITE, true, 2), lin(-1, -2))
+            tcol.addView(lbl(h.title, 26, TXT, true, 2), lin(-1, -2))
             tcol.addView(lbl(h.channel, 21, MUTED, false, 1), lin(-1, -2, t = 6))
             c.addView(tcol, lin(0, -2, 1f, l = 18, r = 10))
         } else {
-            c.addView(lbl(h.title, 21, Color.WHITE, true, 1), lin(-1, -2, t = 10))
+            c.addView(lbl(h.title, 21, TXT, true, 1), lin(-1, -2, t = 10))
             c.addView(lbl(h.channel, 18, MUTED, false, 1), lin(-1, -2, t = 2))
         }
         c.tag = CardTag(h, idx)
@@ -1203,8 +1404,8 @@ class MainActivity : Activity(), IframeHost {
     private fun updateFavBtn() {
         focusable(
             favBtn,
-            box(if (favMode) PINK else 0xFFC2185B.toInt(), 22),
-            box(PINK, 22, 4, Color.WHITE)
+            box(if (favMode) PINK else 0xFFC2185B.toInt(), 28),
+            box(PINK, 28, 4, CYAN)
         )
     }
 
@@ -1300,15 +1501,7 @@ class MainActivity : Activity(), IframeHost {
         val c = core ?: return
         // Dan link YouTube -> them thang bai do
         if (q.contains("youtu") && Util.parseVideoId(q) != null) {
-            val id = Util.parseVideoId(q)!!
-            scope.launch {
-                val m = withContext(Dispatchers.IO) { Resolver.meta(id) }
-                c.controller.addFromTv(
-                    id, m?.title?.takeIf { it.isNotEmpty() } ?: "YouTube · $id",
-                    m?.channel ?: "", m?.durationSec ?: 0, false
-                )
-                toast("Đã thêm bài từ link")
-            }
+            addFromLink(q)
             return
         }
         syncCatToQuery(q)
@@ -1330,9 +1523,9 @@ class MainActivity : Activity(), IframeHost {
         focusable(
             karaokeBtn,
             if (on) box(RED, 34, 2, RED) else box(PANEL, 34, 2, BORDER),
-            if (on) box(RED, 34, 3, CYAN) else box(0x22FFFFFF, 34, 3, CYAN)
+            if (on) box(RED, 34, 3, CYAN) else box(FOCUS, 34, 3, CYAN)
         )
-        karaokeLbl.setTextColor(if (on) Color.WHITE else 0xFFD6D6E2.toInt())
+        karaokeLbl.setTextColor(if (on) Color.WHITE else TXT2)
         karaokeDot.background = box(if (on) Color.WHITE else 0xFF6A6A80.toInt(), 14)
     }
 
@@ -1414,14 +1607,14 @@ class MainActivity : Activity(), IframeHost {
             focusable(
                 row,
                 box(if (sel) RED else Color.TRANSPARENT, 22),
-                box(if (sel) RED else 0x22FFFFFF, 22, 3, CYAN)
+                box(if (sel) RED else FOCUS, 22, 3, CYAN)
             )
             row.addView(IconView(this, "note", if (sel) Color.WHITE else MUTED), lin(p(28), p(28)))
-            row.addView(lbl(ct.name, 24, if (sel) Color.WHITE else 0xFFD6D6E2.toInt(), sel, 1), lin(0, -2, 1f, l = 14))
+            row.addView(lbl(ct.name, 24, if (sel) Color.WHITE else TXT2, sel, 1), lin(0, -2, 1f, l = 14))
             row.setOnClickListener { selectCat(i) }
             // Moi the loai (ke ca 5 the loai co dinh) deu co nut Xoa
             row.setOnLongClickListener { confirmDeleteCat(i); true }
-            val del = lbl("Xoá", 18, Color.WHITE, true)
+            val del = lbl("Xoá", 18, TXT, true)
             del.gravity = Gravity.CENTER
             del.setPadding(p(14), p(4), p(14), p(4))
             focusable(del, box(0x55FF1744, 16, 2, RED), box(RED, 16, 3, CYAN))
@@ -1460,6 +1653,7 @@ class MainActivity : Activity(), IframeHost {
 
     private fun selectCat(i: Int) {
         val ct = cats.getOrNull(i) ?: return
+        if (catDialog?.isShowing == true) catDialog?.dismiss()
         selCat = i
         renderCats()
         searchEt.setText(ct.q)
@@ -1505,7 +1699,7 @@ class MainActivity : Activity(), IframeHost {
         body.orientation = LinearLayout.VERTICAL
         body.gravity = Gravity.CENTER_HORIZONTAL
         body.setPadding(p(40), p(32), p(40), p(8))
-        val t1 = lbl("Xoá thể loại này?", 34, Color.WHITE, true)
+        val t1 = lbl("Xoá thể loại này?", 34, TXT, true)
         t1.gravity = Gravity.CENTER
         body.addView(t1, lin(-1, -2))
         val t2 = lbl("“${ct.name}”", 30, RED, true)
@@ -1554,6 +1748,7 @@ class MainActivity : Activity(), IframeHost {
         timeL.text = mmss(pg[0])
         timeR.text = mmss(pg[1])
         bar.frac = if (pg[1] > 0) pg[0].toFloat() / pg[1] else 0f
+        volSlider.frac = c.controller.currentVolume() / 100f
 
     }
 
@@ -1633,11 +1828,8 @@ class MainActivity : Activity(), IframeHost {
         return Bitmap.createBitmap(px, side, side, Bitmap.Config.ARGB_8888)
     }
 
-    /** An: ma QR bien mat han, danh muc am nhac tu dong tro len tren. Hien: ma QR tro lai. */
-    private fun applyQrHidden(h: Boolean) {
-        qrBody.visibility = if (h) View.GONE else View.VISIBLE
-        qrToggle.text = if (h) "Hiện" else "Ẩn"
-    }
+
+
 
     private fun updateQr(c: Core) {
         val ip = c.ip.value
@@ -1662,6 +1854,7 @@ class MainActivity : Activity(), IframeHost {
     private fun showVolume(v: Int) {
         volText.text = "Âm lượng: $v%"
         volBar.progress = v
+        volSlider.frac = v / 100f
         volBox.visibility = View.VISIBLE
         volBox.removeCallbacks(volHide)
         volBox.postDelayed(volHide, 1800)
@@ -1705,6 +1898,11 @@ class MainActivity : Activity(), IframeHost {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_PICK_FILES || requestCode == REQ_PICK_PLAY || requestCode == REQ_PICK_TREE) {
+            resumeAfterVoice()
+            if (resultCode == RESULT_OK && data != null) handlePick(requestCode, data)
+            return
+        }
         if (requestCode == REQ_VOICE) resumeAfterVoice()
         if (requestCode == REQ_VOICE && resultCode == RESULT_OK) {
             val t = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
@@ -1716,6 +1914,641 @@ class MainActivity : Activity(), IframeHost {
     }
 
     // ------------------------------------------------------------------ dialogs
+
+    // ------------------------------------------------------------------ cac hop thoai moi (Danh Muc, QR, Dan Link, Tai xuong, Thu vien)
+
+    private fun buildQrCardOnce() {
+        qrCard = buildQrCard()
+    }
+
+    private fun showSheet(content: View, widthDp: Int): AlertDialog {
+        val wrap = LinearLayout(this)
+        wrap.orientation = LinearLayout.VERTICAL
+        wrap.setPadding(p(28), p(24), p(28), p(22))
+        wrap.addView(content, lin(-1, -2))
+        val d = track(AlertDialog.Builder(this).setView(wrap))
+        d.window?.setBackgroundDrawable(box(PANEL, 28, 2, BORDER))
+        d.window?.setLayout(p(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT)
+        d.window?.setGravity(Gravity.CENTER)
+        return d
+    }
+
+    private fun sheetBtn(text: String, red: Boolean, onClick: () -> Unit): TextView {
+        val b = lbl(text, 22, if (red) Color.WHITE else TXT, true)
+        b.gravity = Gravity.CENTER
+        focusable(
+            b,
+            if (red) box(RED, 20) else box(BTN, 20, 2, BTN_BORDER),
+            box(if (red) RED else FOCUS2, 20, 3, CYAN)
+        )
+        b.setOnClickListener { onClick() }
+        return b
+    }
+
+    private fun showQr() {
+        (qrCard.parent as? ViewGroup)?.removeView(qrCard)
+        val c = core
+        if (c != null) updateQr(c)
+        showSheet(qrCard, 480)
+    }
+
+    private fun showCatMenu() {
+        (catBox.parent as? ViewGroup)?.removeView(catBox)
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        val add = LinearLayout(this)
+        add.orientation = LinearLayout.HORIZONTAL
+        add.gravity = Gravity.CENTER
+        val dashed = GradientDrawable()
+        dashed.setColor(Color.TRANSPARENT)
+        dashed.cornerRadius = p(22).toFloat()
+        dashed.setStroke(maxOf(1, p(2)), BORDER, p(8).toFloat(), p(6).toFloat())
+        focusable(add, dashed, box(FOCUS, 22, 3, CYAN))
+        add.addView(IconView(this, "plus", TXT), lin(p(26), p(26)))
+        add.addView(lbl("Tạo Thể Loại Mới", 22, TXT), lin(-2, -2, l = 10))
+        add.setOnClickListener {
+            catDialog?.dismiss()
+            createCategoryDialog()
+        }
+        body.addView(add, lin(-1, p(58)))
+        body.addView(sectionLabel("DANH MỤC ÂM NHẠC"), lin(-1, -2, l = 8, t = 14, b = 8))
+        val sv = ScrollView(this)
+        sv.isVerticalScrollBarEnabled = false
+        sv.addView(catBox, FrameLayout.LayoutParams(-1, -2))
+        body.addView(sv, lin(-1, p(430)))
+        val d = showSheet(body, 560)
+        catDialog = d
+        // Hien ngay duoi nut Danh Muc nhu menu tha xuong
+        try {
+            val loc = IntArray(2)
+            catBtnView.getLocationOnScreen(loc)
+            val w = d.window
+            if (w != null) {
+                val lp = w.attributes
+                lp.gravity = Gravity.TOP or Gravity.START
+                lp.x = (loc[0] + catBtnView.width - p(560)).coerceAtLeast(0)
+                lp.y = loc[1] + catBtnView.height + p(8)
+                lp.dimAmount = 0.35f
+                w.attributes = lp
+            }
+        } catch (e: Exception) {
+        }
+        renderCats()
+        val tgt = catBox.getChildAt(selCat.coerceAtLeast(0).coerceAtMost(maxOf(0, catBox.childCount - 1)))
+        tgt?.requestFocus()
+    }
+
+    private fun showPasteLink() {
+        val et = EditText(this)
+        et.hint = "Dán link YouTube (https://youtu.be/...)"
+        et.setSingleLine(true)
+        et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val t = cm.primaryClip?.getItemAt(0)?.text?.toString()
+            if (!t.isNullOrBlank() && t.contains("youtu")) et.setText(t)
+        } catch (e: Exception) {
+        }
+        val d = track(
+            AlertDialog.Builder(this)
+                .setTitle("Dán link YouTube")
+                .setView(et)
+                .setPositiveButton("Thêm") { _, _ -> addFromLink(et.text.toString()) }
+                .setNegativeButton("Hủy", null)
+        )
+        d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+    }
+
+    private fun addFromLink(raw: String) {
+        val c = core ?: return
+        val q = raw.trim()
+        val id = if (q.contains("youtu")) Util.parseVideoId(q) else null
+        if (id == null) {
+            toast("Link YouTube không hợp lệ")
+            return
+        }
+        scope.launch {
+            val m = withContext(Dispatchers.IO) { Resolver.meta(id) }
+            c.controller.addFromTv(
+                id, m?.title?.takeIf { it.isNotEmpty() } ?: "YouTube · $id",
+                m?.channel ?: "", m?.durationSec ?: 0, false
+            )
+            toast("Đã thêm bài từ link")
+        }
+    }
+
+    // ---- tai xuong ----
+
+    private fun markDl(di: IconView, videoId: String) {
+        val job = Downloads.jobs[videoId]
+        when {
+            Downloads.localFile(videoId) != null -> di.set("check", TEAL)
+            job != null && job.error == null && !job.done -> di.set("dot", CYAN)
+            else -> di.set("download", Color.WHITE)
+        }
+    }
+
+    private fun refreshDlMarks() {
+        for (cv in cardViews) {
+            val tg = cv.tag as? CardTag ?: continue
+            val di = cv.findViewWithTag<View>("dlicon") as? IconView ?: continue
+            markDl(di, tg.hit.videoId)
+        }
+    }
+
+
+
+    private fun downloadCurrent() {
+        val cur = core?.controller?.currentItem()
+        if (cur == null) {
+            toast("Chưa có bài đang phát")
+            return
+        }
+        downloadHit(SearchHit(cur.videoId, cur.title, cur.channel, cur.durationSec))
+    }
+
+
+
+
+    private fun filterEdit(hint: String, onChange: (String) -> Unit): EditText {
+        val et = EditText(this)
+        et.hint = hint
+        et.setHintTextColor(MUTED)
+        et.setTextColor(TXT)
+        et.sz(22)
+        et.setSingleLine(true)
+        et.inputType = InputType.TYPE_CLASS_TEXT
+        et.background = box(PANEL2, 18, 2, BORDER)
+        et.setPadding(p(18), p(10), p(18), p(10))
+        et.setOnFocusChangeListener { _, f -> et.background = if (f) box(PANEL2, 18, 3, CYAN) else box(PANEL2, 18, 2, BORDER) }
+        et.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { onChange(e?.toString() ?: "") }
+        })
+        return et
+    }
+
+    private fun sectionLabel(t: String): TextView = lbl(t, 18, MUTED, true)
+
+    private fun playNowItem(id: String, title: String, channel: String, dur: Int) {
+        val c = core ?: return
+        try {
+            val q = c.controller.add(id, title, channel, dur, "TV", "next", true)
+            try { c.controller.playNow(q.itemId) } catch (e: ApiError) { }
+        } catch (e: ApiError) {
+            toast("Không thêm được bài này")
+        }
+    }
+
+    // ---- Tai san ve may ----
+
+    private fun downloadHit(h: SearchHit) {
+        val c = core ?: return
+        if (h.videoId.startsWith("local:")) return
+        if (Downloads.localFile(h.videoId) != null) {
+            toast("Bài này đã tải về rồi")
+            return
+        }
+        val j = Downloads.jobs[h.videoId]
+        if (j != null && !j.done && j.error == null) {
+            toast("Bài này đang được tải")
+            return
+        }
+        val audio = c.settings.dlMode == "audio"
+        toast("Đang tải: ${h.title}")
+        scope.launch {
+            val err = withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio) }
+            toast(if (err == null) "Đã tải xong: ${h.title}" else "Tải lỗi: $err")
+        }
+    }
+
+    private fun downloadMany(list: List<SearchHit>) {
+        val c = core ?: return
+        val todo = list.filter { it.kind == "video" && !it.videoId.startsWith("local:") && Downloads.localFile(it.videoId) == null }
+        if (todo.isEmpty()) {
+            toast("Không có bài nào cần tải")
+            return
+        }
+        val audio = c.settings.dlMode == "audio"
+        val gen = Downloads.cancelGen
+        toast("Bắt đầu tải ${todo.size} bài")
+        scope.launch {
+            for (h in todo) {
+                if (Downloads.cancelGen != gen) break
+                withContext(Dispatchers.IO) { Downloads.download(h.videoId, h.title, h.channel, h.durationSec, audio) }
+            }
+            toast("Đã xong tác vụ tải")
+        }
+    }
+
+    private fun onDownloadsChanged() {
+        val n = Downloads.activeCount()
+        dlBadge.text = n.toString()
+        dlBadge.visibility = if (n > 0) View.VISIBLE else View.GONE
+        refreshDlMarks()
+        if (dlDialog?.isShowing == true) {
+            renderDlProgress()
+            val cnt = Downloads.list().size
+            if (cnt != dlLastCount) {
+                dlLastCount = cnt
+                renderDlLibrary()
+                renderDlScopes()
+            }
+        }
+    }
+
+    private fun showDownloads() {
+        val c = core ?: return
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.addView(lbl("Tải sẵn về máy", 32, TXT, true), lin(-1, -2))
+        root.addView(
+            lbl("Bài đã tải sẽ phát từ file trong máy, không cần mạng. Bài nào mất file thì app tự phát trực tuyến.", 18, MUTED, false, 2),
+            lin(-1, -2, t = 6)
+        )
+        // Thu muc luu
+        val fr = LinearLayout(this)
+        fr.orientation = LinearLayout.HORIZONTAL
+        fr.gravity = Gravity.CENTER_VERTICAL
+        val pathBox = LinearLayout(this)
+        pathBox.orientation = LinearLayout.HORIZONTAL
+        pathBox.gravity = Gravity.CENTER_VERTICAL
+        pathBox.background = box(PANEL2, 18, 2, BORDER)
+        pathBox.setPadding(p(16), 0, p(16), 0)
+        pathBox.addView(IconView(this, "folder", 0xFFFFC107.toInt()), lin(p(24), p(24)))
+        pathBox.addView(lbl(Downloads.folderPath(), 18, TXT, true, 1), lin(0, -2, 1f, l = 10))
+        fr.addView(pathBox, lin(0, p(56), 1f))
+        fr.addView(sheetBtn("Quét lại", false) {
+            dlLastCount = -1
+            onDownloadsChanged()
+            toast("Đã quét lại thư mục")
+        }, lin(p(140), p(56), l = 10))
+        root.addView(fr, lin(-1, -2, t = 12))
+
+        // Kieu tai
+        val mr = LinearLayout(this)
+        mr.orientation = LinearLayout.HORIZONTAL
+        mr.gravity = Gravity.CENTER_VERTICAL
+        mr.addView(lbl("Kiểu tải:", 18, MUTED), lin(-2, -2, r = 12))
+        val bVideo = sheetBtn("Hình + tiếng", false) {}
+        val bAudio = sheetBtn("Chỉ tiếng (m4a)", false) {}
+        fun styleMode() {
+            val vid = c.settings.dlMode != "audio"
+            for ((b, on) in listOf(bVideo to vid, bAudio to !vid)) {
+                focusable(
+                    b,
+                    if (on) box(0xFF00838F.toInt(), 20) else box(BTN, 20, 2, BTN_BORDER),
+                    box(if (on) 0xFF00838F.toInt() else FOCUS2, 20, 3, CYAN)
+                )
+            }
+        }
+        bVideo.setOnClickListener { c.settings.dlMode = "video"; styleMode() }
+        bAudio.setOnClickListener { c.settings.dlMode = "audio"; styleMode() }
+        styleMode()
+        mr.addView(bVideo, lin(p(190), p(50), r = 10))
+        mr.addView(bAudio, lin(p(230), p(50)))
+        root.addView(mr, lin(-1, -2, t = 12))
+
+        // Pham vi tai
+        root.addView(sectionLabel("PHẠM VI TẢI"), lin(-1, -2, t = 18, b = 6))
+        val sb = LinearLayout(this)
+        sb.orientation = LinearLayout.VERTICAL
+        dlScopeBox = sb
+        root.addView(sb, lin(-1, -2))
+
+        // Bai da tai san
+        val lh = LinearLayout(this)
+        lh.orientation = LinearLayout.HORIZONTAL
+        lh.gravity = Gravity.CENTER_VERTICAL
+        val lt = sectionLabel("")
+        dlLibTitle = lt
+        lh.addView(lt, lin(0, -2, 1f))
+        lh.addView(sheetBtn("+ Thêm tất cả vào hàng đợi", false) {
+            val l = Downloads.list().map { SearchHit(it.videoId, it.title, it.channel, it.durationSec) }
+            val n = core?.controller?.addMany(l, "TV") ?: 0
+            toast(if (n > 0) "Đã thêm $n bài vào hàng đợi" else "Không thêm được bài nào")
+        }, lin(-2, p(46)))
+        root.addView(lh, lin(-1, -2, t = 18, b = 8))
+        root.addView(filterEdit("Lọc theo tên bài đã tải…") { dlFilter = it; renderDlLibrary() }, lin(-1, p(58)))
+        val lb = LinearLayout(this)
+        lb.orientation = LinearLayout.VERTICAL
+        dlLibBox = lb
+        val lsv = ScrollView(this)
+        lsv.isVerticalScrollBarEnabled = false
+        lsv.addView(lb, FrameLayout.LayoutParams(-1, -2))
+        root.addView(lsv, lin(-1, p(230), t = 8))
+
+        // Tien do
+        val ph = LinearLayout(this)
+        ph.orientation = LinearLayout.HORIZONTAL
+        ph.gravity = Gravity.CENTER_VERTICAL
+        ph.addView(sectionLabel("TIẾN ĐỘ"), lin(0, -2, 1f))
+        ph.addView(sheetBtn("Huỷ tất cả", false) {
+            Downloads.cancelAll()
+            toast("Đã huỷ các tác vụ tải")
+        }, lin(p(170), p(46), r = 8))
+        ph.addView(sheetBtn("Xoá dòng đã xong", false) { Downloads.clearFinished() }, lin(p(230), p(46)))
+        root.addView(ph, lin(-1, -2, t = 16, b = 6))
+        val pb = LinearLayout(this)
+        pb.orientation = LinearLayout.VERTICAL
+        dlProgBox = pb
+        root.addView(pb, lin(-1, -2))
+
+        val foot = lbl("", 18, MUTED, false, 1)
+        dlFoot = foot
+        root.addView(foot, lin(-1, -2, t = 14))
+
+        val sv = ScrollView(this)
+        sv.isVerticalScrollBarEnabled = false
+        sv.addView(root, FrameLayout.LayoutParams(-1, -2))
+        val holder = LinearLayout(this)
+        holder.orientation = LinearLayout.VERTICAL
+        holder.addView(sv, lin(-1, p(760)))
+        var dlg: AlertDialog? = null
+        val closeRow = LinearLayout(this)
+        closeRow.orientation = LinearLayout.HORIZONTAL
+        closeRow.addView(spacer(), lin(0, 1, 1f))
+        closeRow.addView(sheetBtn("ĐÓNG", true) { dlg?.dismiss() }, lin(p(160), p(56)))
+        holder.addView(closeRow, lin(-1, -2, t = 12))
+        dlLastCount = Downloads.list().size
+        renderDlScopes()
+        renderDlLibrary()
+        renderDlProgress()
+        dlg = showSheet(holder, 1100)
+        dlDialog = dlg
+    }
+
+    private fun renderDlScopes() {
+        val b = dlScopeBox ?: return
+        val c = core ?: return
+        b.removeAllViews()
+        val favL = favs.map { SearchHit(it.videoId, it.title, it.channel, it.durationSec) }
+        val qL = ArrayList<SearchHit>()
+        c.controller.currentItem()?.let { qL.add(SearchHit(it.videoId, it.title, it.channel, it.durationSec)) }
+        c.controller.queueItems().forEach { qL.add(SearchHit(it.videoId, it.title, it.channel, it.durationSec)) }
+        for ((name, list) in listOf("Yêu thích" to favL, "Hàng đợi hiện tại" to qL)) {
+            val ok = list.filter { !it.videoId.startsWith("local:") }
+            val have = ok.count { Downloads.localFile(it.videoId) != null }
+            val r = LinearLayout(this)
+            r.orientation = LinearLayout.HORIZONTAL
+            r.gravity = Gravity.CENTER_VERTICAL
+            r.setPadding(p(8), p(6), p(8), p(6))
+            r.addView(lbl(name, 24, TXT, true), lin(0, -2, 1f))
+            val chip = lbl("đã tải $have/${ok.size}", 17, MUTED, true)
+            chip.background = box(PANEL2, 16)
+            chip.setPadding(p(12), p(4), p(12), p(4))
+            r.addView(chip, lin(-2, -2, r = 12))
+            r.addView(sheetBtn("Tải về", true) { downloadMany(ok) }, lin(p(120), p(46)))
+            b.addView(r, lin(-1, -2))
+        }
+    }
+
+    private fun renderDlLibrary() {
+        val lb = dlLibBox ?: return
+        val all = Downloads.list()
+        dlLibTitle?.text = "BÀI ĐÃ TẢI SẴN · ${all.size} bài"
+        dlFoot?.text = "${all.size} bài đã tải sẵn trong thư mục này"
+        val f = dlFilter.trim().lowercase()
+        val list = if (f.isEmpty()) all else all.filter { it.title.lowercase().contains(f) || it.channel.lowercase().contains(f) }
+        lb.removeAllViews()
+        if (list.isEmpty()) {
+            lb.addView(lbl(if (all.isEmpty()) "Chưa có bài nào được tải sẵn." else "Không có bài khớp bộ lọc.", 19, MUTED), lin(-1, -2, l = 8, t = 8))
+            return
+        }
+        for (e in list.take(100)) {
+            val r = LinearLayout(this)
+            r.orientation = LinearLayout.HORIZONTAL
+            r.gravity = Gravity.CENTER_VERTICAL
+            r.setPadding(p(8), p(6), p(8), p(6))
+            r.addView(IconView(this, "note", PINK), lin(p(26), p(26)))
+            val info = LinearLayout(this)
+            info.orientation = LinearLayout.VERTICAL
+            info.addView(lbl(e.title, 22, TXT, true, 1), lin(-1, -2))
+            val kind = if (e.file.extension == "m4a") "Chỉ tiếng" else "Hình + tiếng"
+            val mb = String.format(Locale.US, "%d MB", maxOf(1L, e.file.length() / 1048576L))
+            info.addView(lbl("$kind · $mb", 16, MUTED, false, 1), lin(-1, -2, t = 2))
+            r.addView(info, lin(0, -2, 1f, l = 12))
+            r.addView(sheetBtn("Phát ngay", true) { playNowItem(e.videoId, e.title, e.channel, e.durationSec) }, lin(p(130), p(44), l = 8))
+            r.addView(sheetBtn("+ Hàng đợi", false) { addHit(SearchHit(e.videoId, e.title, e.channel, e.durationSec), false) }, lin(p(140), p(44), l = 8))
+            r.addView(sheetBtn("Xoá", false) {
+                Downloads.delete(e.videoId)
+                toast("Đã xoá: ${e.title}")
+            }, lin(p(80), p(44), l = 8))
+            lb.addView(r, lin(-1, -2))
+        }
+    }
+
+    private fun renderDlProgress() {
+        val pb = dlProgBox ?: return
+        pb.removeAllViews()
+        val jobs = Downloads.jobs.values.toList()
+        if (jobs.isEmpty()) {
+            pb.addView(lbl("Chưa có bài nào đang tải. Bấm \"Tải về\" ở một phạm vi phía trên.", 19, MUTED), lin(-1, -2, l = 8, t = 4))
+            return
+        }
+        for (j in jobs) {
+            val r = LinearLayout(this)
+            r.orientation = LinearLayout.HORIZONTAL
+            r.gravity = Gravity.CENTER_VERTICAL
+            r.setPadding(p(8), p(6), p(8), p(6))
+            r.addView(lbl(j.title.ifBlank { j.videoId }, 21, TXT, false, 1), lin(0, -2, 1f))
+            val st = when {
+                j.error != null -> lbl("Lỗi: ${j.error}", 17, RED, true, 1)
+                j.done -> lbl("Xong", 19, GREEN, true)
+                else -> lbl("${j.pct}%", 19, CYAN, true)
+            }
+            r.addView(st, lin(-2, -2, l = 12))
+            pb.addView(r, lin(-1, -2))
+        }
+    }
+
+    // ---- Nhac & video trong may ----
+
+    private fun showLocal() {
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        body.addView(lbl("Nhạc & video trong máy", 32, TXT, true), lin(-1, -2))
+        val br = LinearLayout(this)
+        br.orientation = LinearLayout.HORIZONTAL
+        br.addView(sheetBtn("Chọn & phát ngay…", true) { pickFiles(true) }, lin(p(290), p(58), r = 10))
+        br.addView(sheetBtn("+ Thêm file…", false) { pickFiles(false) }, lin(p(190), p(58), r = 10))
+        br.addView(sheetBtn("+ Thêm thư mục…", false) { pickTree() }, lin(p(240), p(58)))
+        body.addView(br, lin(-1, -2, t = 14))
+        body.addView(
+            lbl("Phát được: mp3, m4a, wav, flac, ogg, opus, aac · mp4, mkv, webm, mov, m4v", 17, MUTED, false, 2),
+            lin(-1, -2, t = 8)
+        )
+        val chips = LinearLayout(this)
+        chips.orientation = LinearLayout.HORIZONTAL
+        localChipBox = chips
+        val hs = android.widget.HorizontalScrollView(this)
+        hs.isHorizontalScrollBarEnabled = false
+        hs.addView(chips, FrameLayout.LayoutParams(-2, -2))
+        body.addView(hs, lin(-1, -2, t = 10))
+        body.addView(filterEdit("Lọc theo tên bài hoặc tên thư mục") { localFilter = it; renderLocalList() }, lin(-1, p(58), t = 10))
+        val st = lbl("", 17, MUTED, false, 1)
+        localStatus = st
+        body.addView(st, lin(-1, -2, l = 6, t = 6))
+        val lb = LinearLayout(this)
+        lb.orientation = LinearLayout.VERTICAL
+        localListBox = lb
+        val sv = ScrollView(this)
+        sv.isVerticalScrollBarEnabled = false
+        sv.addView(lb, FrameLayout.LayoutParams(-1, -2))
+        body.addView(sv, lin(-1, p(400), t = 4))
+        var dlg: AlertDialog? = null
+        val fr = LinearLayout(this)
+        fr.orientation = LinearLayout.HORIZONTAL
+        fr.gravity = Gravity.END
+        val addAll = sheetBtn("THÊM TẤT CẢ VÀO HÀNG ĐỢI (0)", true) {
+            val l = filteredLocal().map { SearchHit(it.id, it.title, it.folder, 0) }
+            val n = core?.controller?.addMany(l, "TV") ?: 0
+            toast(if (n > 0) "Đã thêm $n bài vào hàng đợi" else "Không thêm được bài nào")
+        }
+        localAddAll = addAll
+        fr.addView(addAll, lin(p(520), p(60), r = 12))
+        fr.addView(sheetBtn("ĐÓNG", false) { dlg?.dismiss() }, lin(p(150), p(60)))
+        body.addView(fr, lin(-1, -2, t = 14))
+        dlg = showSheet(body, 1060)
+        localDlg = dlg
+        rescanLocal()
+    }
+
+    private fun filteredLocal(): List<LocalItem> {
+        val f = localFilter.trim().lowercase()
+        return if (f.isEmpty()) localItems else localItems.filter { it.title.lowercase().contains(f) || it.folder.lowercase().contains(f) }
+    }
+
+    private fun rescanLocal() {
+        localStatus?.text = "Đang quét…"
+        scope.launch {
+            val items = withContext(Dispatchers.IO) { LocalLib.scan() }
+            localItems = items
+            renderLocalChips()
+            renderLocalList()
+            val ids = pendingPlayIds
+            pendingPlayIds = emptyList()
+            if (ids.isNotEmpty()) {
+                val got = ids.mapNotNull { id -> items.firstOrNull { it.id == id } }
+                got.firstOrNull()?.let { playNowItem(it.id, it.title, it.folder, 0) }
+                got.drop(1).forEach { addHit(SearchHit(it.id, it.title, it.folder, 0), false) }
+            }
+        }
+    }
+
+    private fun renderLocalChips() {
+        val cb = localChipBox ?: return
+        cb.removeAllViews()
+        fun chip(label: String, onRemove: () -> Unit) {
+            val ch = LinearLayout(this)
+            ch.orientation = LinearLayout.HORIZONTAL
+            ch.gravity = Gravity.CENTER_VERTICAL
+            ch.background = box(PANEL2, 22, 2, BORDER)
+            ch.setPadding(p(14), p(4), p(6), p(4))
+            ch.addView(IconView(this, "folder", 0xFFFFC107.toInt()), lin(p(22), p(22)))
+            ch.addView(lbl(label, 19, TXT, false, 1), lin(-2, -2, l = 8, r = 8))
+            val x = FrameLayout(this)
+            focusable(x, box(BTN, 18), box(FOCUS2, 18, 3, CYAN))
+            x.addView(IconView(this, "close", TXT), FrameLayout.LayoutParams(p(18), p(18), Gravity.CENTER))
+            x.setOnClickListener { onRemove() }
+            ch.addView(x, lin(p(34), p(34)))
+            cb.addView(ch, lin(-2, -2, r = 10))
+        }
+        for (t in LocalLib.trees()) chip(LocalLib.treeLabel(t)) {
+            LocalLib.removeTree(t)
+            rescanLocal()
+        }
+        val nf = LocalLib.files().size
+        if (nf > 0) chip("$nf file lẻ") {
+            LocalLib.clearFiles()
+            rescanLocal()
+        }
+    }
+
+    private fun renderLocalList() {
+        val lb = localListBox ?: return
+        val list = filteredLocal()
+        localAddAll?.text = "THÊM TẤT CẢ VÀO HÀNG ĐỢI (${list.size})"
+        localStatus?.text = when {
+            localItems.isEmpty() -> "Chưa có nhạc/video nào. Bấm “+ Thêm thư mục…” hoặc “+ Thêm file…”."
+            list.size > 150 -> "Hiển thị 150/${list.size} bài, gõ để lọc"
+            else -> "${list.size} bài"
+        }
+        lb.removeAllViews()
+        for (it in list.take(150)) {
+            val item = it
+            val r = LinearLayout(this)
+            r.orientation = LinearLayout.HORIZONTAL
+            r.gravity = Gravity.CENTER_VERTICAL
+            r.setPadding(p(8), p(6), p(8), p(6))
+            r.addView(IconView(this, "note", PINK), lin(p(26), p(26)))
+            val info = LinearLayout(this)
+            info.orientation = LinearLayout.VERTICAL
+            info.addView(lbl(item.title, 22, TXT, true, 1), lin(-1, -2))
+            val mb = String.format(Locale.US, "%d MB", maxOf(1L, item.sizeBytes / 1048576L))
+            info.addView(lbl("${item.folder} · $mb${if (item.isVideo) " · video" else ""}", 16, MUTED, false, 1), lin(-1, -2, t = 2))
+            r.addView(info, lin(0, -2, 1f, l = 12))
+            r.addView(sheetBtn("Phát ngay", true) { playNowItem(item.id, item.title, item.folder, 0) }, lin(p(140), p(46), l = 8))
+            r.addView(sheetBtn("+ Hàng đợi", false) { addHit(SearchHit(item.id, item.title, item.folder, 0), false) }, lin(p(150), p(46), l = 8))
+            lb.addView(r, lin(-1, -2))
+        }
+    }
+
+    private fun pauseForPicker() {
+        val c = core
+        voiceWasPlaying = c != null && lastUi.state == PState.PLAYING
+        if (voiceWasPlaying) c?.controller?.pause()
+    }
+
+    private fun pickFiles(playNow: Boolean) {
+        pauseForPicker()
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+        i.addCategory(Intent.CATEGORY_OPENABLE)
+        i.type = "*/*"
+        i.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        try {
+            startActivityForResult(i, if (playNow) REQ_PICK_PLAY else REQ_PICK_FILES)
+        } catch (e: Exception) {
+            toast("TV này chưa hỗ trợ chọn file")
+            resumeAfterVoice()
+        }
+    }
+
+    private fun pickTree() {
+        pauseForPicker()
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        try {
+            startActivityForResult(i, REQ_PICK_TREE)
+        } catch (e: Exception) {
+            toast("TV này chưa hỗ trợ chọn thư mục")
+            resumeAfterVoice()
+        }
+    }
+
+    private fun handlePick(req: Int, data: Intent) {
+        if (req == REQ_PICK_TREE) {
+            val u = data.data ?: return
+            try { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+            LocalLib.addTree(u.toString())
+        } else {
+            val uris = ArrayList<android.net.Uri>()
+            data.data?.let { uris.add(it) }
+            val cd = data.clipData
+            if (cd != null) for (k in 0 until cd.itemCount) cd.getItemAt(k).uri?.let { uris.add(it) }
+            if (uris.isEmpty()) return
+            for (u in uris) {
+                try { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+            }
+            val strs = uris.map { it.toString() }.distinct()
+            LocalLib.addFiles(strs)
+            if (req == REQ_PICK_PLAY) pendingPlayIds = strs.map { LocalLib.idOf(it) }
+        }
+        rescanLocal()
+    }
 
     private fun showSettings() {
         val c = core ?: return
@@ -1739,7 +2572,7 @@ class MainActivity : Activity(), IframeHost {
                         0 -> s.backend = when (s.backend) { "AUTO" -> "EXOPLAYER"; "EXOPLAYER" -> "IFRAME"; else -> "AUTO" }
                         1 -> c.controller.setMaxHeight(when (s.maxHeight) { 360 -> 480; 480 -> 720; 720 -> 1080; else -> 360 })
                         2 -> s.seedAutoplay = !s.seedAutoplay
-                        3 -> { s.gridCols = when (s.gridCols) { 3 -> 2; 2 -> 1; else -> 3 }; applyGridCols(s.gridCols) }
+                        3 -> { s.gridCols = when (s.gridCols) { 1 -> 2; 2 -> 3; 3 -> 4; else -> 1 }; applyGridCols(s.gridCols) }
                         4 -> {
                             val opts = intArrayOf(3, 5, 10, 15, 30, 60, 0)
                             val cur = opts.indexOf(s.fullscreenSec)
@@ -1836,6 +2669,11 @@ class MainActivity : Activity(), IframeHost {
             val st = lastUi.state
             if (st == PState.PLAYING || st == PState.PAUSED) enterFullscreen()
             else toast("Chưa có video đang phát")
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_PROG_BLUE && event.repeatCount == 0) {
+            val tag = currentFocus?.tag
+            if (tag is CardTag && tag.hit.kind != "playlist") downloadHit(tag.hit) else downloadCurrent()
             return true
         }
         if (keyCode == KeyEvent.KEYCODE_MENU) {

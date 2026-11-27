@@ -37,10 +37,15 @@ class Settings(ctx: Context) {
         get() = sp.getString("tvLang", "vi") ?: "vi"
         set(v) { sp.edit().putString("tvLang", v).apply() }
 
-    /** So bai tren moi hang o luoi ket qua: 1, 2 hoac 3 (mac dinh 3) */
+    /** So bai tren moi hang o luoi ket qua: 1 den 4 (mac dinh 2) */
     var gridCols: Int
-        get() = sp.getInt("gridCols", 3).coerceIn(1, 3)
-        set(v) { sp.edit().putInt("gridCols", v.coerceIn(1, 3)).apply() }
+        get() = sp.getInt("gridCols", 2).coerceIn(1, 4)
+        set(v) { sp.edit().putInt("gridCols", v.coerceIn(1, 4)).apply() }
+
+    /** Kieu tai ve: "video" (hinh + tieng) | "audio" (chi tieng m4a) */
+    var dlMode: String
+        get() = sp.getString("dlMode", "video") ?: "video"
+        set(v) { sp.edit().putString("dlMode", v).apply() }
 
     /** So giay khong bam remote thi tu phong to video: 3..60; 0 = tat tu phong to (mac dinh 5) */
     var fullscreenSec: Int
@@ -51,6 +56,11 @@ class Settings(ctx: Context) {
     var qrHidden: Boolean
         get() = sp.getBoolean("qrHidden", false)
         set(v) { sp.edit().putBoolean("qrHidden", v).apply() }
+
+    /** Giao dien: true = toi (mac dinh), false = sang */
+    var darkUi: Boolean
+        get() = sp.getBoolean("darkUi", true)
+        set(v) { sp.edit().putBoolean("darkUi", v).apply() }
 
     var token: String
         get() {

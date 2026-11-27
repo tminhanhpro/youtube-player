@@ -13,6 +13,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -104,6 +105,16 @@ class Controller(
     // ---- che do karaoke dung chung TV <-> remote (mac dinh TAT moi lan mo app) ----
     val karaoke = MutableStateFlow(false)
     fun setKaraoke(on: Boolean) { karaoke.value = on }
+
+    // ---- che do lap: 0 = tat, 1 = lap 1 bai, 2 = lap ca hang doi (bai vua phat xong quay ve cuoi hang doi) ----
+    val repeatMode = MutableStateFlow(0)
+    fun cycleRepeat(): Int {
+        repeatMode.value = (repeatMode.value + 1) % 3
+        return repeatMode.value
+    }
+
+    /** Am luong hien tai 0..100 (de thanh truot tren TV hien thi). */
+    fun currentVolume(): Int = volume
 
     // ---- tim kiem dung chung TV <-> remote (an toan goi tu luong HTTP) ----
     val search = MutableStateFlow(SearchState())
@@ -875,7 +886,9 @@ class Controller(
             .setReadTimeoutMs(10_000)
             .setAllowCrossProtocolRedirects(true)
         // Tai theo tung doan 4 MB (range=) de YouTube khong bop toc do -> het dung ~10 giay sau vai giay dau
-        val pf = ProgressiveMediaSource.Factory(YtChunkedDataSource.wrap(dsf))
+        // Bai da tai ve (file://...) doc thang tu bo nho may, khong qua mang
+        val pf = if (s.video.startsWith("file:") || s.video.startsWith("content:")) ProgressiveMediaSource.Factory(DefaultDataSource.Factory(app))
+        else ProgressiveMediaSource.Factory(YtChunkedDataSource.wrap(dsf))
         val src = if (s.audio != null) {
             MergingMediaSource(
                 pf.createMediaSource(MediaItem.fromUri(s.video)),
@@ -904,6 +917,29 @@ class Controller(
 
     private fun trackEnded() {
         consecutiveFails = 0
+        val cur = current
+        if (cur != null) {
+            when (repeatMode.value) {
+                1 -> {
+                    // Lap 1 bai: phat lai chinh bai nay tu dau
+                    userPaused = false
+                    autoPaused = false
+                    playItem(cur)
+                    return
+                }
+                2 -> {
+                    // Lap hang doi: dua ban sao cua bai vua phat xong ve cuoi hang doi
+                    queue.add(
+                        QueueItem(
+                            videoId = cur.videoId, title = cur.title, channel = cur.channel,
+                            durationSec = cur.durationSec, addedBy = cur.addedBy, source = cur.source
+                        )
+                    )
+                    queueVersion++
+                    persist()
+                }
+            }
+        }
         startNext()
     }
 

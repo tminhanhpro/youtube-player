@@ -101,6 +101,96 @@ class IconView(ctx: Context, var kind: String, var color: Int = Color.WHITE) : V
                 c.drawLine(15f, 12f, 21.5f, 12f, line)
                 if (kind == "vup") c.drawLine(18.25f, 8.75f, 18.25f, 15.25f, line)
             }
+            "folder" -> {
+                val f = Path()
+                f.moveTo(3f, 6f); f.lineTo(10f, 6f); f.lineTo(12.5f, 9f); f.lineTo(21f, 9f)
+                f.lineTo(21f, 19f); f.lineTo(3f, 19f); f.close()
+                c.drawPath(f, fill)
+            }
+            "download" -> {
+                c.drawLine(12f, 4f, 12f, 15f, line)
+                val a = Path()
+                a.moveTo(7f, 10.5f); a.lineTo(12f, 15.5f); a.lineTo(17f, 10.5f)
+                c.drawPath(a, line)
+                c.drawLine(5f, 20f, 19f, 20f, line)
+            }
+            "qr" -> {
+                c.drawRect(3.5f, 3.5f, 10f, 10f, line)
+                c.drawRect(14f, 3.5f, 20.5f, 10f, line)
+                c.drawRect(3.5f, 14f, 10f, 20.5f, line)
+                c.drawRect(5.8f, 5.8f, 7.7f, 7.7f, fill)
+                c.drawRect(16.3f, 5.8f, 18.2f, 7.7f, fill)
+                c.drawRect(5.8f, 16.3f, 7.7f, 18.2f, fill)
+                c.drawRect(14f, 14f, 16.5f, 16.5f, fill)
+                c.drawRect(18f, 14f, 20.5f, 16.5f, fill)
+                c.drawRect(14f, 18f, 16.5f, 20.5f, fill)
+                c.drawRect(18f, 18f, 20.5f, 20.5f, fill)
+            }
+            "up", "down" -> {
+                val dir = if (kind == "up") -1f else 1f
+                val y0 = 12f - dir * 7f
+                val y1 = 12f + dir * 7f
+                c.drawLine(12f, y0, 12f, y1, line)
+                val a = Path()
+                a.moveTo(6.5f, y1 - dir * 6f); a.lineTo(12f, y1); a.lineTo(17.5f, y1 - dir * 6f)
+                c.drawPath(a, line)
+            }
+            "trash" -> {
+                c.drawRect(4f, 5f, 20f, 7.2f, fill)
+                c.drawRect(9f, 3f, 15f, 5f, fill)
+                val t = Path()
+                t.moveTo(6f, 8.5f); t.lineTo(18f, 8.5f); t.lineTo(17f, 21f); t.lineTo(7f, 21f); t.close()
+                c.drawPath(t, fill)
+            }
+            "replay" -> {
+                c.drawArc(RectF(5f, 5f, 19f, 19f), -60f, 300f, false, line)
+                tri(c, 12f, 3.6f, 9.6f, 9.2f, 6.2f, 2.6f)
+            }
+            "repeat", "repeat1" -> {
+                val top = Path()
+                top.moveTo(4f, 13f); top.lineTo(4f, 11f); top.quadTo(4f, 7f, 8f, 7f); top.lineTo(16.5f, 7f)
+                c.drawPath(top, line)
+                tri(c, 16f, 3.5f, 21f, 7f, 16f, 10.5f)
+                val bot = Path()
+                bot.moveTo(20f, 11f); bot.lineTo(20f, 13f); bot.quadTo(20f, 17f, 16f, 17f); bot.lineTo(7.5f, 17f)
+                c.drawPath(bot, line)
+                tri(c, 8f, 13.5f, 3f, 17f, 8f, 20.5f)
+                if (kind == "repeat1") {
+                    c.drawLine(12.4f, 10f, 12.4f, 14.2f, line)
+                    c.drawLine(11f, 11.2f, 12.4f, 10f, line)
+                }
+            }
+            "chevron" -> {
+                val a = Path()
+                a.moveTo(6f, 9f); a.lineTo(12f, 15f); a.lineTo(18f, 9f)
+                c.drawPath(a, line)
+            }
+            "close" -> { c.drawLine(6f, 6f, 18f, 18f, line); c.drawLine(18f, 6f, 6f, 18f, line) }
+            "check" -> {
+                val a = Path()
+                a.moveTo(5f, 12.5f); a.lineTo(10f, 17.5f); a.lineTo(19f, 7f)
+                c.drawPath(a, line)
+            }
+            "sun" -> {
+                c.drawCircle(12f, 12f, 4.5f, line)
+                for (i in 0 until 8) {
+                    val a = Math.toRadians(i * 45.0)
+                    c.drawLine(12f + (7.5f * Math.cos(a)).toFloat(), 12f + (7.5f * Math.sin(a)).toFloat(),
+                        12f + (10f * Math.cos(a)).toFloat(), 12f + (10f * Math.sin(a)).toFloat(), line)
+                }
+            }
+            "moon" -> {
+                val m = Path()
+                m.moveTo(20f, 14.5f)
+                m.cubicTo(18.5f, 15.2f, 16.8f, 15.5f, 15f, 15.5f)
+                m.cubicTo(9.8f, 15.5f, 6.5f, 11.8f, 6.5f, 7.5f)
+                m.cubicTo(6.5f, 6.3f, 6.7f, 5.2f, 7.2f, 4.2f)
+                m.cubicTo(4.8f, 5.6f, 3.5f, 8.2f, 3.5f, 11f)
+                m.cubicTo(3.5f, 15.9f, 7.4f, 20f, 12.5f, 20f)
+                m.cubicTo(15.7f, 20f, 18.5f, 18.4f, 20f, 14.5f)
+                m.close()
+                c.drawPath(m, line)
+            }
             "gear" -> {
                 c.drawCircle(12f, 12f, 4f, line)
                 for (i in 0 until 8) {
@@ -119,6 +209,8 @@ class IconView(ctx: Context, var kind: String, var color: Int = Color.WHITE) : V
 
 /** Thanh tien trinh bo tron. */
 class BarView(ctx: Context) : View(ctx) {
+    var trackColor = 0xFF2A2A38.toInt()
+        set(v) { field = v; invalidate() }
     var frac = 0f
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -126,11 +218,35 @@ class BarView(ctx: Context) : View(ctx) {
     override fun onDraw(c: Canvas) {
         val h = height.toFloat()
         val w = width.toFloat()
-        p.color = 0xFF2A2A38.toInt()
+        p.color = trackColor
         c.drawRoundRect(RectF(0f, 0f, w, h), h / 2, h / 2, p)
         if (frac > 0f) {
             p.color = 0xFFFF1744.toInt()
             c.drawRoundRect(RectF(0f, 0f, maxOf(h, w * frac), h), h / 2, h / 2, p)
         }
+    }
+}
+
+/** Thanh truot am luong: ray + phan do + nut tron trang. */
+class SliderView(ctx: Context) : View(ctx) {
+    var trackColor = 0xFF2A2A38.toInt()
+    var knobColor = Color.WHITE
+    var frac = 0f
+        set(v) { field = v.coerceIn(0f, 1f); invalidate() }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val th = h * 0.2f
+        val cy = h / 2f
+        val r = h * 0.3f
+        val x = r + (w - 2 * r) * frac
+        p.color = trackColor
+        c.drawRoundRect(RectF(0f, cy - th / 2, w, cy + th / 2), th / 2, th / 2, p)
+        p.color = 0xFFFF1744.toInt()
+        c.drawRoundRect(RectF(0f, cy - th / 2, x, cy + th / 2), th / 2, th / 2, p)
+        p.color = knobColor
+        c.drawCircle(x, cy, r, p)
     }
 }

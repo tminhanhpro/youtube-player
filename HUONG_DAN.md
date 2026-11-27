@@ -4,10 +4,19 @@
 Dựng từ nền kỹ thuật của app Savify Karaoke (NewPipe Extractor + ExoPlayer + server NanoHTTPD + QR).
 Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục lên GitHub → Actions → **Build APK** → tải `youtube-player.apk`.
 
-## Giao diện TV (3 cột)
-- **Trái**: mã QR kết nối remote, nút *Tạo Thể Loại Mới*, danh mục âm nhạc (5 thể loại có sẵn + thể loại tự tạo), nút *Cài đặt*.
-- **Giữa**: ô tìm kiếm (gõ bằng remote TV, nút micro để nói, hoặc dán link YouTube) và lưới kết quả.
-- **Phải**: màn hình phát nhỏ (có nút phóng to), thanh tiến trình, nút điều khiển, hàng đợi tiếp theo.
+## Giao diện TV (bố cục mới)
+- **Thanh trên cùng**: logo + tên app, trạng thái remote, 3 nút tròn **Yêu thích** (hồng), **Nhạc trong máy** (xanh lá), **Tải sẵn về máy** (xanh ngọc, hiện số bài đang tải); bên phải: nút **QR** (mở hộp mã QR kết nối remote), nút **Cài đặt**, nút **Sáng/Tối** (mặt trời/mặt trăng, ngay bên phải nút Cài đặt; bấm để đổi giao diện sáng ↔ tối, được nhớ lại), Wi-Fi, đồng hồ. **Bấm vào logo** (góc trái) từ Yêu thích / danh sách phát để quay về trang tìm kiếm cũ.
+- **Hàng tìm kiếm**: micro, ô tìm + nút **TÌM** + nút **Danh Mục ▾** (mở danh sách thể loại; giữ OK hoặc nút Xoá để xoá thể loại, có nút tạo thể loại mới), nút **Karaoke**.
+- **Trái**: lưới kết quả (mặc định 2 bài/hàng; Cài đặt → "Số bài mỗi hàng kết quả" xoay vòng 1 → 2 → 3 → 4). Mỗi bài có nút tải xuống ở góc ảnh.
+- **Giữa**: **HÀNG ĐỢI TIẾP THEO** — mỗi bài có 4 nút: Phát ngay, Lên, Xuống, Xoá; chân khung có tổng thời gian và nút **Dán Link** (thêm bài từ link YouTube).
+- **Phải**: **ĐANG PHÁT** — màn hình nhỏ (nhãn độ phân giải, nhãn ĐANG PHÁT/ĐANG TẠM DỪNG, nút phóng to), tiêu đề, kênh, thanh tiến trình, 6 nút (lùi 10s, phát/dừng, bài tiếp, tua 10s, **phát lại từ đầu**, **lặp lại**), thanh trượt âm lượng.
+
+## Chức năng mới
+- **Lặp lại** (nút cuối hàng điều khiển): bấm xoay vòng TẮT → lặp 1 bài → lặp cả hàng đợi.
+- **Nhạc & video trong máy** (nút xanh lá): *Chọn & phát ngay…*, *+ Thêm file…*, *+ Thêm thư mục…* (chọn bằng bộ chọn file của Android; nếu TV không có bộ chọn sẽ báo "TV này chưa hỗ trợ"). Phát mp3, m4a, wav, flac, ogg, opus, aac, mp4, mkv, webm, mov, m4v. Có ô lọc, nút *Phát ngay* / *+ Hàng đợi* cho từng bài và *Thêm tất cả vào hàng đợi*. Thư mục đã thêm hiện thành thẻ, bấm ✕ để bỏ.
+- **Tải sẵn về máy** (nút xanh ngọc): chọn *Kiểu tải* (Hình + tiếng / Chỉ tiếng m4a); *Phạm vi tải*: Yêu thích hoặc Hàng đợi hiện tại → *Tải về*; danh sách bài đã tải có lọc, *Phát ngay*, *+ Hàng đợi*, *Xoá*; mục *Tiến độ* có *Huỷ tất cả* và *Xoá dòng đã xong*. Bài đã tải phát thẳng từ file, không cần mạng. Cũng có thể bấm biểu tượng tải trên từng bài hoặc phím **Xanh dương** trên remote. File lưu trong `Android/data/vn.savify.youtubeplayer/files/Music/YoutubePlayer` (Android không cho đổi/mở thư mục này từ app). Chỉ dùng cho mục đích cá nhân, tôn trọng bản quyền.
+- **Dán Link**: dán link YouTube (tự lấy từ clipboard nếu có) để thêm bài vào hàng đợi.
+- Đã bỏ khỏi bản này: nút LED, hình ảnh chờ, điều khiển LED/thiết bị (theo ảnh mẫu).
 
 ## Phím remote TV
 | Phím | Tác dụng |
@@ -15,7 +24,7 @@ Cách build/cài đặt giống hệt app karaoke: đưa toàn bộ thư mục l
 | OK trên một bài | Phát ngay (nếu đang phát bài gợi ý) hoặc thêm vào cuối hàng đợi |
 | MENU hoặc **giữ OK** trên một bài | Ưu tiên: đưa lên đầu hàng đợi |
 | OK trên bài ở hàng đợi | Phát ngay bài đó |
-| MENU hoặc giữ OK trên bài ở hàng đợi | Xoá khỏi hàng đợi |
+| OK trên nút của bài ở hàng đợi | Phát / Lên / Xuống / Xoá; MENU = xoá khỏi hàng đợi |
 | Giữ OK trên thể loại tự tạo | Xoá thể loại |
 | Nút ⛶ ở góc màn hình phát | Phóng to toàn màn hình |
 | **INFO (ⓘ)**, hoặc nút **Vàng**, hoặc **CH+** | Phóng to video đang phát ngay lập tức (bấm lại để thu nhỏ) |
